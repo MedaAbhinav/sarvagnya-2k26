@@ -1,27 +1,28 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Use fallback placeholder values so createClient never receives undefined.
-// The site will render correctly even without Supabase configured.
-// Database operations will fail gracefully with an error toast.
-const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL     || 'https://placeholder.supabase.co'
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || 'placeholder-anon-key'
+const supabaseUrl     = import.meta.env.VITE_SUPABASE_URL
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
 
-const configured =
-  import.meta.env.VITE_SUPABASE_URL &&
-  import.meta.env.VITE_SUPABASE_URL !== 'https://your-project.supabase.co'
-
-if (!configured) {
-  console.warn(
-    '⚠️  Supabase not configured.\n' +
-    'Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to GitHub Actions secrets.\n' +
-    'Registration and contribution forms will not save data until configured.'
+// Log configuration status for debugging
+if (!supabaseUrl || !supabaseAnonKey) {
+  console.error(
+    '❌ Supabase credentials missing.\n' +
+    'VITE_SUPABASE_URL:', supabaseUrl ? '✓ set' : '✗ MISSING',
+    '\nVITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '✓ set' : '✗ MISSING'
   )
+} else {
+  console.log('✓ Supabase configured:', supabaseUrl)
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-export const isSupabaseConfigured = configured
+// Always create a real client — never use placeholders that hide errors
+export const supabase = createClient(
+  supabaseUrl     || 'https://placeholder.supabase.co',
+  supabaseAnonKey || 'placeholder-key'
+)
 
-// Generate a unique registration ID
+// isSupabaseConfigured: true only when real credentials are present
+export const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey)
+
 export function generateRegistrationId() {
   const prefix    = 'JNTU2006'
   const timestamp = Date.now().toString(36).toUpperCase()

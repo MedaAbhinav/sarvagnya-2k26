@@ -74,10 +74,11 @@ export default function RegistrationSection() {
       setStep(STEP.CHOICE)
     } catch (err) {
       console.error(err)
+      const msg = err?.message || 'Unknown error'
       toast.error(
-        err?.message?.includes('duplicate')
+        msg.includes('duplicate') || msg.includes('unique')
           ? 'This phone number is already registered.'
-          : 'Something went wrong. Please try again.'
+          : `Save failed: ${msg}`
       )
       // stay on FORM so user can retry
     } finally {

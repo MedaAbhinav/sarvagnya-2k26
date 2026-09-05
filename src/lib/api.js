@@ -1,18 +1,8 @@
-import { supabase, generateRegistrationId, isSupabaseConfigured } from './supabase'
+import { supabase, generateRegistrationId } from './supabase'
 
 // ── REGISTRATIONS ────────────────────────────────────────────
 
 export async function submitRegistration(formData) {
-  if (!isSupabaseConfigured) {
-    console.warn('Supabase not configured — returning mock data')
-    return {
-      registration_id:   generateRegistrationId(),
-      full_name:         formData.fullName,
-      phone:             formData.phone,
-      attendance_status: formData.attendance,
-    }
-  }
-
   const registrationId = generateRegistrationId()
 
   const payload = {
@@ -35,29 +25,26 @@ export async function submitRegistration(formData) {
     created_at:             new Date().toISOString(),
   }
 
+  console.log('Submitting registration:', payload)
+
   const { data, error } = await supabase
     .from('registrations')
     .insert([payload])
     .select()
     .single()
 
-  if (error) throw error
+  if (error) {
+    console.error('Registration insert error:', error.code, error.message, error.details)
+    throw new Error(error.message)
+  }
+
+  console.log('Registration saved:', data.registration_id)
   return data
 }
 
 // ── CONTRIBUTIONS ────────────────────────────────────────────
 
-/**
- * Submit a contribution with optional screenshot file.
- * @param {object} contributionData
- * @param {File|null} screenshotFile
- */
 export async function submitContribution(contributionData, screenshotFile = null) {
-  if (!isSupabaseConfigured) {
-    console.warn('Supabase not configured — returning mock data')
-    return { id: 'demo', ...contributionData }
-  }
-
   let screenshotUrl = null
   if (screenshotFile) {
     screenshotUrl = await uploadScreenshot(contributionData.registrationId, screenshotFile)
@@ -77,21 +64,23 @@ export async function submitContribution(contributionData, screenshotFile = null
     created_at:          new Date().toISOString(),
   }
 
+  console.log('Submitting contribution:', payload)
+
   const { data, error } = await supabase
     .from('contributions')
     .insert([payload])
     .select()
     .single()
 
-  if (error) throw error
+  if (error) {
+    console.error('Contribution insert error:', error.code, error.message, error.details)
+    throw new Error(error.message)
+  }
+
+  console.log('Contribution saved:', data.id)
   return data
 }
 
-/**
- * Upload screenshot to payment-screenshots bucket.
- * Bucket must be PUBLIC so admin can view images.
- * Returns the public URL, or null on failure.
- */
 async function uploadScreenshot(registrationId, file) {
   try {
     const ext      = file.name.split('.').pop().toLowerCase()
@@ -119,10 +108,6 @@ async function uploadScreenshot(registrationId, file) {
 
 // ── ADMIN ────────────────────────────────────────────────────
 
-/**
- * Fetch ALL registrations with their linked contribution (if any).
- * Left-join style: registrations without contributions are included.
- */
 export async function getAllRegistrations() {
   const { data, error } = await supabase
     .from('registrations')
