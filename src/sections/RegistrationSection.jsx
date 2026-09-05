@@ -1,27 +1,42 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   Loader2, CheckCircle2, ChevronDown,
-  Copy, Smartphone, Building2, Heart,
+  Copy, Smartphone, Building2, Heart, Upload, X,
 } from 'lucide-react'
 import { submitRegistration, submitContribution } from '../lib/api'
-import { EVENT, PAYMENT, REQUIRE_CONTRIBUTION_FOR_NON_ATTENDEES } from '../config'
+import { EVENT, PAYMENT } from '../config'
 import { formatCurrency } from '../lib/utils'
 import ScrollReveal from '../components/ScrollReveal'
 import GoldDivider from '../components/GoldDivider'
 
-// QR image path — BASE_URL is '/' locally and '/sarvagnya-2k26/' on GitHub Pages
-// This ensures the image resolves correctly in both environments.
+// QR: BASE_URL = '/' locally, '/sarvagnya-2k26/' on GitHub Pages
 const QR_SRC = `${import.meta.env.BASE_URL}upi-qr.jpeg`
 
+// Steps: 'form' → 'contribution-choice' → 'contribute' | 'done'
+const STEP = {
+  FORM:    'form',
+  CHOICE:  'contribution-choice',
+  PAY:     'contribute',
+  DONE:    'done',
+}
+
 export default function RegistrationSection() {
+  const [step, setStep]           = useState(STEP.FORM)
   const [submitting, setSubmitting] = useState(false)
-  const [submitted,  setSubmitted]  = useState(false)
-  const [savedData,  setSavedData]  = useState(null)
-  const [amount,     setAmount]     = useState('')
-  const [copied,     setCopied]     = useState('')
+  const [savedReg, setSavedReg]   = useState(null)
+
+  // Contribution state
+  const [amount, setAmount]               = useState('')
+  const [screenshotFile, setScreenshot]   = useState(null)
+  const [screenshotPreview, setPreview]   = useState(null)
+  const [uploadingContrib, setUploading]  = useState(false)
+  const [copied, setCopied]               = useState('')
+  const fileRef = useRef(null)
+
+  const numericAmount = parseFloat(amount) || 0
 
   const {
     register,
@@ -31,10 +46,9 @@ export default function RegistrationSection() {
     reset,
   } = useForm({ defaultValues: { batch: '2006', familyMembers: '0' } })
 
-  const attendance    = watch('attendance')
-  const numericAmount = parseFloat(amount) || 0
-  const canSubmit     = !submitting && numericAmount >= 1
+  const attendance = watch('attendance')
 
+  // ── Helpers ────────────────────────────────────────────────
   function handleCopy(text, key) {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(key)
@@ -42,29 +56,30 @@ export default function RegistrationSection() {
     })
   }
 
-  async function onSubmit(data) {
-    if (numericAmount < 1) {
-      toast.error('Please enter a contribution amount before completing registration.')
+  function handleFileChange(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+    if (!allowed.includes(file.type)) {
+      toast.error('Please upload a JPG, PNG or WebP image.')
       return
     }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error('Screenshot must be under 8 MB.')
+      return
+    }
+    setScreenshot(file)
+    setPreview(URL.createObjectURL(file))
+  }
+
+  // ── Step 1: Submit registration form ───────────────────────
+  async function onSubmitRegistration(data) {
     setSubmitting(true)
     try {
-      // 1. Save registration
-      const regResult = await submitRegistration(data)
-      setSavedData(regResult)
-
-      // 2. Save contribution linked to registration
-      await submitContribution({
-        registrationId: regResult.registration_id,
-        alumniName:     regResult.full_name,
-        phone:          regResult.phone            || null,
-        attendance:     regResult.attendance_status || null,
-        amount:         numericAmount,
-      })
-
-      setSubmitted(true)
+      const result = await submitRegistration(data)
+      setSavedReg(result)
       reset()
-      setAmount('')
+      setStep(STEP.CHOICE)
     } catch (err) {
       console.error(err)
       toast.error(
@@ -77,8 +92,66 @@ export default function RegistrationSection() {
     }
   }
 
-  // ── Success state ─────────────────────────────────────────
-  if (submitted && savedData) {
+  // ── Step 2a: Alumni chose "Not interested" ─────────────────
+  async function handleNotInterested() {
+    setSubmitting(true)
+    try {
+      await submitContribution({
+        registrationId: savedReg.registration_id,
+        alumniName:     savedReg.full_name,
+        phone:          savedReg.phone || null,
+        attendance:     savedReg.attendance_status || null,
+        amount:         0,
+        status:         'NOT_INTERESTED',
+      }, null)
+      setStep(STEP.DONE)
+    } catch (err) {
+      console.error(err)
+      // Don't block completion if contribution record fails
+      setStep(STEP.DONE)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  // ── Step 2b: Alumni chose "I would like to contribute" ─────
+  function handleChooseContribute() {
+    setStep(STEP.PAY)
+  }
+
+  // ── Step 3: Submit contribution + screenshot ───────────────
+  async function handleSubmitContribution(e) {
+    e.preventDefault()
+    if (numericAmount < 1) {
+      toast.error('Please enter a contribution amount.')
+      return
+    }
+    if (!screenshotFile) {
+      toast.error('Please upload a payment screenshot to confirm your contribution.')
+      return
+    }
+    setUploading(true)
+    try {
+      await submitContribution({
+        registrationId: savedReg.registration_id,
+        alumniName:     savedReg.full_name,
+        phone:          savedReg.phone || null,
+        attendance:     savedReg.attendance_status || null,
+        amount:         numericAmount,
+        status:         'SUBMITTED',
+      }, screenshotFile)
+      setStep(STEP.DONE)
+      toast.success('Contribution received! Thank you ❤️')
+    } catch (err) {
+      console.error(err)
+      toast.error('Could not save contribution. Please try again.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // ── DONE screen ────────────────────────────────────────────
+  if (step === STEP.DONE) {
     return (
       <section id="registration"
         className="section-pad bg-navy-950 relative overflow-hidden">
@@ -103,39 +176,377 @@ export default function RegistrationSection() {
               2006 Batch ❤️
             </h3>
             <GoldDivider />
-            {savedData.attendance_status === 'No' ? (
-              <p className="font-sans text-ivory-300/80 text-base leading-relaxed
-                            mb-5 max-w-sm mx-auto mt-4">
-                Although we will miss having you on campus, your contribution will
-                help make Sarvagnya 2K26 truly memorable.
-              </p>
-            ) : (
-              <p className="font-sans text-ivory-300/80 text-base leading-relaxed
-                            mb-5 mt-4">
-                Your registration and contribution have been received. We look
-                forward to welcoming you on October 10!
-              </p>
-            )}
-            <div className="premium-card inline-block mb-4">
-              <p className="font-sans text-ivory-400/55 text-xs tracking-widest
-                            uppercase mb-1">
-                Registration ID
-              </p>
-              <p className="font-sans text-gold-400 font-mono text-sm font-bold
-                            tracking-wider">
-                {savedData.registration_id}
-              </p>
-            </div>
-            <p className="font-sans text-ivory-400/40 text-sm">
-              Please complete your payment using the QR / UPI details above.
+            <p className="font-sans text-ivory-300/80 text-base leading-relaxed mt-4 mb-5">
+              {savedReg?.attendance_status === 'Yes'
+                ? 'Your registration is complete. We look forward to welcoming you on October 10!'
+                : 'Your registration is complete. Thank you for being with us.'}
             </p>
+            {savedReg?.registration_id && (
+              <div className="premium-card inline-block mb-4">
+                <p className="font-sans text-ivory-400/55 text-xs tracking-widest
+                              uppercase mb-1">Registration ID</p>
+                <p className="font-sans text-gold-400 font-mono text-sm font-bold
+                              tracking-wider">
+                  {savedReg.registration_id}
+                </p>
+              </div>
+            )}
           </motion.div>
         </div>
       </section>
     )
   }
 
-  // ── Form ──────────────────────────────────────────────────
+  // ── CONTRIBUTION CHOICE screen ─────────────────────────────
+  if (step === STEP.CHOICE) {
+    return (
+      <section id="registration"
+        className="section-pad bg-navy-950 relative overflow-hidden">
+        <div className="absolute inset-0 grain-overlay pointer-events-none" />
+        <div className="max-w-2xl mx-auto relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            {/* Registration confirmed banner */}
+            <div className="premium-card text-center py-8 px-6 mb-6">
+              <CheckCircle2 size={36} className="text-gold-400 mx-auto mb-3" />
+              <p className="font-serif text-ivory-100 text-xl font-bold mb-1">
+                Registration Confirmed ✓
+              </p>
+              <p className="font-sans text-ivory-400/60 text-xs font-mono tracking-wider">
+                {savedReg?.registration_id}
+              </p>
+            </div>
+
+            {/* Contribution choice */}
+            <div className="premium-card"
+              style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
+              <div className="flex items-center gap-3 mb-5 pb-5 border-b border-navy-700/50">
+                <Heart size={18} className="text-gold-400 flex-shrink-0"
+                       fill="currentColor" />
+                <h3 className="font-serif text-ivory-100 text-lg font-semibold">
+                  Support the Celebrations
+                </h3>
+              </div>
+
+              {savedReg?.attendance_status === 'No' ? (
+                <div className="mb-5 px-4 py-3 bg-gold-500/6 border border-gold-500/20">
+                  <p className="font-serif text-ivory-200 text-sm leading-relaxed
+                                italic text-center">
+                    "Although you cannot join us in person, your contribution can
+                    still become a part of this celebration."
+                  </p>
+                </div>
+              ) : (
+                <p className="font-sans text-ivory-300/75 text-sm leading-relaxed mb-5">
+                  Every contribution helps us make{' '}
+                  <strong className="text-gold-400">Sarvagnya 2K26</strong> and the
+                  2006 Batch Alumni Meet truly memorable for students and alumni alike.
+                </p>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <button
+                  onClick={handleChooseContribute}
+                  className="flex items-center justify-center gap-2 p-5 border-2
+                             border-gold-500 bg-gold-500/10 text-gold-300
+                             hover:bg-gold-500/20 transition-all duration-200
+                             font-sans font-semibold text-sm tracking-wide"
+                >
+                  <Heart size={16} fill="currentColor" />
+                  I would like to contribute
+                </button>
+
+                <button
+                  onClick={handleNotInterested}
+                  disabled={submitting}
+                  className="flex items-center justify-center gap-2 p-5 border
+                             border-navy-600 text-ivory-400/70
+                             hover:border-navy-500 hover:text-ivory-300
+                             transition-all duration-200
+                             font-sans font-medium text-sm tracking-wide
+                             disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {submitting
+                    ? <><Loader2 size={14} className="animate-spin" /> Processing…</>
+                    : 'Not interested in contributing'
+                  }
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
+    )
+  }
+
+  // ── CONTRIBUTION + SCREENSHOT screen ──────────────────────
+  if (step === STEP.PAY) {
+    return (
+      <section id="registration"
+        className="section-pad bg-navy-950 relative overflow-hidden">
+        <div className="absolute inset-0 grain-overlay pointer-events-none" />
+        <div className="max-w-2xl mx-auto relative z-10">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5 }}
+          >
+            <form onSubmit={handleSubmitContribution} className="space-y-6">
+
+              {/* Payment methods */}
+              <div className="premium-card"
+                style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
+                <div className="flex items-center gap-3 mb-6 pb-5
+                                border-b border-navy-700/50">
+                  <Smartphone size={18} className="text-gold-400 flex-shrink-0" />
+                  <h3 className="font-serif text-ivory-100 text-lg font-semibold">
+                    Make Your Contribution
+                  </h3>
+                </div>
+
+                <p className="font-sans text-ivory-300/70 text-sm mb-6 leading-relaxed">
+                  Scan the QR code or use the bank details below to complete your
+                  payment. Then upload a screenshot to confirm.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+
+                  {/* QR */}
+                  <div className="text-center">
+                    <p className="font-sans text-ivory-400/50 text-xs
+                                  tracking-[0.2em] uppercase mb-3
+                                  flex items-center justify-center gap-1.5">
+                      <Smartphone size={12} />
+                      Scan with UPI App
+                    </p>
+                    <div className="inline-block bg-white p-3 mx-auto"
+                      style={{ lineHeight: 0 }}>
+                      <img
+                        src={QR_SRC}
+                        alt="PhonePe / UPI Payment QR Code"
+                        style={{
+                          display: 'block',
+                          width: '180px',
+                          height: 'auto',
+                          imageRendering: 'crisp-edges',
+                        }}
+                      />
+                    </div>
+                    <div className="mt-4 space-y-1">
+                      <p className="font-sans text-ivory-400/45 text-xs
+                                    tracking-widest uppercase">UPI ID</p>
+                      <div className="flex items-center justify-center gap-2">
+                        <span className="font-mono text-gold-400 font-semibold
+                                         text-sm tracking-wide">
+                          {PAYMENT.upiId}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(PAYMENT.upiId, 'upi')}
+                          className="text-navy-400 hover:text-gold-400 transition-colors"
+                          aria-label="Copy UPI ID"
+                        >
+                          {copied === 'upi'
+                            ? <CheckCircle2 size={13} className="text-green-400" />
+                            : <Copy size={13} />
+                          }
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bank */}
+                  <div>
+                    <p className="font-sans text-ivory-400/50 text-xs
+                                  tracking-[0.2em] uppercase mb-3
+                                  flex items-center gap-1.5">
+                      <Building2 size={12} />
+                      Bank Transfer
+                    </p>
+                    <div className="space-y-4">
+                      {[
+                        { label: 'Account Number', value: PAYMENT.accountNumber, key: 'acc'  },
+                        { label: 'IFSC Code',       value: PAYMENT.ifscCode,       key: 'ifsc' },
+                      ].map(({ label, value, key }) => (
+                        <div key={key}
+                          className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-sans text-ivory-400/40 text-xs
+                                          tracking-widest uppercase mb-0.5">
+                              {label}
+                            </p>
+                            <p className="font-mono text-ivory-100 text-sm
+                                          font-semibold break-all">
+                              {value}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(value, key)}
+                            className="text-navy-500 hover:text-gold-400
+                                       transition-colors flex-shrink-0"
+                            aria-label={`Copy ${label}`}
+                          >
+                            {copied === key
+                              ? <CheckCircle2 size={13} className="text-green-400" />
+                              : <Copy size={13} />
+                            }
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Amount input */}
+                <div className="border-t border-navy-700/40 pt-6 space-y-5">
+                  <div>
+                    <label className="form-label">
+                      Contribution Amount (₹) <span className="text-gold-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2
+                                       font-serif text-gold-400 text-2xl font-bold
+                                       pointer-events-none select-none">₹</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="Enter amount"
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        className="form-input pl-10 text-xl font-semibold
+                                   text-gold-300 py-4"
+                        inputMode="numeric"
+                        aria-label="Contribution amount in rupees"
+                      />
+                    </div>
+                    <AnimatePresence>
+                      {numericAmount > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0 }}
+                          className="mt-3 p-3 bg-gold-500/8 border
+                                     border-gold-500/20 text-center"
+                        >
+                          <span className="font-sans text-ivory-400/55 text-xs
+                                           tracking-widest uppercase mr-2">
+                            Your contribution:
+                          </span>
+                          <span className="font-serif text-gold-400 text-xl font-bold">
+                            {formatCurrency(numericAmount)}
+                          </span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Screenshot upload */}
+                  <div>
+                    <label className="form-label">
+                      Payment Screenshot <span className="text-gold-500">*</span>
+                    </label>
+                    <p className="font-sans text-ivory-400/45 text-xs mb-3">
+                      After making the payment, upload a screenshot from your UPI app
+                      to confirm your contribution.
+                    </p>
+
+                    <div
+                      onClick={() => fileRef.current?.click()}
+                      className={`border-2 border-dashed p-5 text-center cursor-pointer
+                                  transition-all duration-200 rounded-sm
+                                  ${screenshotFile
+                                    ? 'border-gold-500/50 bg-gold-500/5'
+                                    : 'border-navy-700 hover:border-navy-600'}`}
+                    >
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        accept="image/jpeg,image/jpg,image/png,image/webp"
+                        className="hidden"
+                        onChange={handleFileChange}
+                      />
+                      {screenshotPreview ? (
+                        <div className="space-y-2">
+                          <img
+                            src={screenshotPreview}
+                            alt="Payment screenshot preview"
+                            className="max-h-40 object-contain mx-auto rounded"
+                          />
+                          <p className="font-sans text-gold-400 text-xs">
+                            {screenshotFile.name}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={e => {
+                              e.stopPropagation()
+                              setScreenshot(null)
+                              setPreview(null)
+                            }}
+                            className="text-navy-400 hover:text-red-400 transition-colors
+                                       text-xs inline-flex items-center gap-1"
+                          >
+                            <X size={12} /> Remove
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <Upload size={24} className="text-navy-500 mx-auto" />
+                          <p className="font-sans text-ivory-400/60 text-sm">
+                            Tap to upload payment screenshot
+                          </p>
+                          <p className="font-sans text-navy-500 text-xs">
+                            JPG, PNG or WebP · Max 8 MB
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Submit buttons */}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  type="submit"
+                  disabled={uploadingContrib || numericAmount < 1 || !screenshotFile}
+                  className="btn-primary flex-1 py-4 text-sm
+                             disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {uploadingContrib
+                    ? <><Loader2 size={16} className="animate-spin" /> Submitting…</>
+                    : <><Heart size={15} /> Confirm Contribution</>
+                  }
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStep(STEP.CHOICE)}
+                  className="btn-outline py-4 text-xs px-6"
+                >
+                  ← Back
+                </button>
+              </div>
+
+              {(!screenshotFile || numericAmount < 1) && (
+                <p className="font-sans text-ivory-400/35 text-xs text-center">
+                  {numericAmount < 1
+                    ? 'Enter contribution amount'
+                    : 'Upload payment screenshot to continue'}
+                </p>
+              )}
+
+            </form>
+          </motion.div>
+        </div>
+      </section>
+    )
+  }
+
+  // ── REGISTRATION FORM ─────────────────────────────────────
   return (
     <section id="registration"
       className="section-pad relative overflow-hidden bg-navy-950">
@@ -147,7 +558,6 @@ export default function RegistrationSection() {
 
       <div className="max-w-2xl mx-auto relative z-10">
 
-        {/* Header */}
         <ScrollReveal className="text-center mb-12">
           <p className="font-script text-gold-400 text-xl mb-3">You Belong Here</p>
           <h2 className="heading-lg text-ivory-100 mb-4">
@@ -158,14 +568,14 @@ export default function RegistrationSection() {
           <p className="font-sans text-ivory-300/70 text-base leading-relaxed
                         mt-6 max-w-lg mx-auto">
             Register for the{' '}
-            <strong className="text-gold-400">{EVENT.title}</strong> and help us
-            make Sarvagnya 2K26 truly memorable.
+            <strong className="text-gold-400">{EVENT.title}</strong>.
           </p>
         </ScrollReveal>
 
-        <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-8">
+        <form onSubmit={handleSubmit(onSubmitRegistration)}
+          noValidate className="space-y-8">
 
-          {/* ── PERSONAL DETAILS ── */}
+          {/* Personal Details */}
           <ScrollReveal delay={50}>
             <FormSection title="Personal Details" icon="👤">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -207,8 +617,7 @@ export default function RegistrationSection() {
                   <label className="form-label">Batch</label>
                   <input
                     className="form-input bg-navy-800/50 cursor-not-allowed opacity-70"
-                    readOnly
-                    value="2006"
+                    readOnly value="2006"
                     {...register('batch')}
                   />
                 </div>
@@ -220,12 +629,11 @@ export default function RegistrationSection() {
                     options={['Prefer not to say', 'Male', 'Female']}
                   />
                 </div>
-
               </div>
             </FormSection>
           </ScrollReveal>
 
-          {/* ── ATTENDANCE ── */}
+          {/* Attendance */}
           <ScrollReveal delay={80}>
             <FormSection title="Attendance" icon="📅">
               <div>
@@ -235,8 +643,8 @@ export default function RegistrationSection() {
                 {errors.attendance && <Err msg={errors.attendance.message} />}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                   {[
-                    { value: 'Yes', label: 'Yes, I will attend ❤️',  sub: 'October 10, 2026'        },
-                    { value: 'No',  label: 'No, I cannot attend',     sub: 'I will not be present'  },
+                    { value: 'Yes', label: 'Yes, I will attend ❤️',  sub: 'October 10, 2026' },
+                    { value: 'No',  label: 'No, I cannot attend',     sub: 'I will not be present' },
                   ].map(opt => (
                     <AttendanceCard
                       key={opt.value}
@@ -254,7 +662,7 @@ export default function RegistrationSection() {
             </FormSection>
           </ScrollReveal>
 
-          {/* ── FAMILY + TRAVEL + FOOD — only for YES ── */}
+          {/* Travel + Food — YES only */}
           <AnimatePresence>
             {attendance === 'Yes' && (
               <motion.div
@@ -264,16 +672,12 @@ export default function RegistrationSection() {
                 transition={{ duration: 0.35 }}
                 className="overflow-hidden space-y-8"
               >
-                {/* Family */}
                 <FormSection title="Family" icon="👨‍👩‍👧">
                   <div>
                     <label className="form-label">Family members accompanying you</label>
                     <input
                       className="form-input w-28 text-center text-lg font-semibold"
-                      type="number"
-                      min="0"
-                      max="20"
-                      inputMode="numeric"
+                      type="number" min="0" max="20" inputMode="numeric"
                       {...register('familyMembers', {
                         min: { value: 0, message: 'Cannot be negative' },
                         max: { value: 20, message: 'Maximum 20' },
@@ -283,33 +687,27 @@ export default function RegistrationSection() {
                   </div>
                 </FormSection>
 
-                {/* Arrival / Departure */}
                 <FormSection title="Arrival & Departure" icon="✈️">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label className="form-label">Arrival Date</label>
-                      <input className="form-input" type="date"
-                        {...register('arrivalDate')} />
+                      <input className="form-input" type="date" {...register('arrivalDate')} />
                     </div>
                     <div>
                       <label className="form-label">Arrival Time</label>
-                      <input className="form-input" type="time"
-                        {...register('arrivalTime')} />
+                      <input className="form-input" type="time" {...register('arrivalTime')} />
                     </div>
                     <div>
                       <label className="form-label">Departure Date</label>
-                      <input className="form-input" type="date"
-                        {...register('departureDate')} />
+                      <input className="form-input" type="date" {...register('departureDate')} />
                     </div>
                     <div>
                       <label className="form-label">Departure Time</label>
-                      <input className="form-input" type="time"
-                        {...register('departureTime')} />
+                      <input className="form-input" type="time" {...register('departureTime')} />
                     </div>
                   </div>
                 </FormSection>
 
-                {/* Food + Accommodation */}
                 <FormSection title="Preferences" icon="🍽️">
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
@@ -332,200 +730,7 @@ export default function RegistrationSection() {
             )}
           </AnimatePresence>
 
-          {/* ── SUPPORT THE CELEBRATIONS ── */}
-          <AnimatePresence>
-            {attendance && (
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5 }}
-              >
-                <div className="premium-card"
-                  style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
-
-                  <div className="flex items-center gap-3 mb-6 pb-5
-                                  border-b border-navy-700/50">
-                    <Heart size={18} className="text-gold-400 flex-shrink-0"
-                           fill="currentColor" />
-                    <h3 className="font-serif text-ivory-100 text-lg font-semibold">
-                      Support the Celebrations
-                    </h3>
-                  </div>
-
-                  {attendance === 'No' ? (
-                    <div className="mb-6 px-4 py-4 bg-gold-500/6
-                                    border border-gold-500/25">
-                      <p className="font-serif text-ivory-200 text-sm md:text-base
-                                    leading-relaxed italic text-center">
-                        "Although you cannot join us in person, your contribution
-                        can still become a part of this celebration."
-                      </p>
-                    </div>
-                  ) : (
-                    <p className="font-sans text-ivory-300/75 text-sm leading-relaxed mb-6">
-                      Every contribution helps us make{' '}
-                      <strong className="text-gold-400">Sarvagnya 2K26</strong> and
-                      the 2006 Batch Alumni Meet truly memorable for students and
-                      alumni alike.
-                    </p>
-                  )}
-
-                  {/* Amount input */}
-                  <div className="mb-6">
-                    <label className="form-label">
-                      Contribution Amount (₹)
-                      <span className="text-gold-500 ml-1">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2
-                                       font-serif text-gold-400 text-2xl font-bold
-                                       pointer-events-none select-none">₹</span>
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        placeholder="Enter amount"
-                        value={amount}
-                        onChange={e => setAmount(e.target.value)}
-                        className="form-input pl-10 text-xl font-semibold
-                                   text-gold-300 py-4"
-                        inputMode="numeric"
-                        aria-label="Contribution amount in rupees"
-                      />
-                    </div>
-                    <AnimatePresence>
-                      {numericAmount > 0 && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          className="mt-3 p-3 bg-gold-500/8 border
-                                     border-gold-500/20 text-center"
-                        >
-                          <span className="font-sans text-ivory-400/55 text-xs
-                                           tracking-widest uppercase mr-2">
-                            Your contribution:
-                          </span>
-                          <span className="font-serif text-gold-400 text-xl font-bold">
-                            {formatCurrency(numericAmount)}
-                          </span>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Payment details */}
-                  <div className="border-t border-navy-700/40 pt-6">
-                    <p className="font-sans text-ivory-400/55 text-xs tracking-widest
-                                  uppercase mb-5 text-center">
-                      Complete payment using any method below
-                    </p>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-
-                      {/* QR */}
-                      <div className="text-center">
-                        <p className="font-sans text-ivory-400/50 text-xs
-                                      tracking-[0.2em] uppercase mb-3
-                                      flex items-center justify-center gap-1.5">
-                          <Smartphone size={12} />
-                          Scan with UPI App
-                        </p>
-                        <div className="inline-block bg-white p-3 mx-auto"
-                          style={{ lineHeight: 0 }}>
-                          <img
-                            src={QR_SRC}
-                            alt="PhonePe / UPI Payment QR Code"
-                            style={{
-                              display: 'block',
-                              width: '180px',
-                              height: 'auto',
-                              imageRendering: 'crisp-edges',
-                            }}
-                          />
-                        </div>
-                        <div className="mt-4 space-y-1">
-                          <p className="font-sans text-ivory-400/45 text-xs
-                                        tracking-widest uppercase">
-                            UPI ID
-                          </p>
-                          <div className="flex items-center justify-center gap-2">
-                            <span className="font-mono text-gold-400 font-semibold
-                                             text-sm tracking-wide">
-                              {PAYMENT.upiId}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopy(PAYMENT.upiId, 'upi')}
-                              className="text-navy-400 hover:text-gold-400
-                                         transition-colors"
-                              aria-label="Copy UPI ID"
-                            >
-                              {copied === 'upi'
-                                ? <CheckCircle2 size={13} className="text-green-400" />
-                                : <Copy size={13} />
-                              }
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Bank */}
-                      <div>
-                        <p className="font-sans text-ivory-400/50 text-xs
-                                      tracking-[0.2em] uppercase mb-3
-                                      flex items-center gap-1.5">
-                          <Building2 size={12} />
-                          Bank Transfer
-                        </p>
-                        <div className="space-y-4">
-                          {[
-                            { label: 'Account Number', value: PAYMENT.accountNumber, key: 'acc'  },
-                            { label: 'IFSC Code',       value: PAYMENT.ifscCode,       key: 'ifsc' },
-                          ].map(({ label, value, key }) => (
-                            <div key={key}
-                              className="flex items-center justify-between gap-2">
-                              <div className="flex-1 min-w-0">
-                                <p className="font-sans text-ivory-400/40 text-xs
-                                              tracking-widest uppercase mb-0.5">
-                                  {label}
-                                </p>
-                                <p className="font-mono text-ivory-100 text-sm
-                                              font-semibold break-all">
-                                  {value}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => handleCopy(value, key)}
-                                className="text-navy-500 hover:text-gold-400
-                                           transition-colors flex-shrink-0"
-                                aria-label={`Copy ${label}`}
-                              >
-                                {copied === key
-                                  ? <CheckCircle2 size={13} className="text-green-400" />
-                                  : <Copy size={13} />
-                                }
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                    </div>
-
-                    <p className="font-sans text-ivory-400/30 text-xs text-center
-                                  mt-5 leading-relaxed">
-                      Complete your payment using the above QR or bank details
-                      after submitting registration.
-                    </p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* ── COMPLETE REGISTRATION — final button ── */}
+          {/* Submit */}
           <AnimatePresence>
             {attendance && (
               <motion.div
@@ -535,20 +740,15 @@ export default function RegistrationSection() {
               >
                 <button
                   type="submit"
-                  disabled={!canSubmit}
+                  disabled={submitting}
                   className="btn-primary min-w-[260px] py-5 text-sm
                              disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting
                     ? <><Loader2 size={16} className="animate-spin" /> Registering…</>
-                    : <>Complete Registration →</>
+                    : <>Register →</>
                   }
                 </button>
-                {numericAmount < 1 && (
-                  <p className="font-sans text-ivory-400/40 text-xs mt-2">
-                    Please enter a contribution amount to complete registration.
-                  </p>
-                )}
                 <p className="font-sans text-ivory-400/30 text-xs mt-3">
                   Your information is stored securely and will not be shared.
                 </p>
@@ -564,13 +764,8 @@ export default function RegistrationSection() {
 
 // ── Sub-components ────────────────────────────────────────────
 
-function Req() {
-  return <span className="text-gold-500 ml-0.5">*</span>
-}
-
-function Err({ msg }) {
-  return <p className="form-error mt-1">{msg}</p>
-}
+function Req() { return <span className="text-gold-500 ml-0.5">*</span> }
+function Err({ msg }) { return <p className="form-error mt-1">{msg}</p> }
 
 function FormSection({ title, icon, children }) {
   return (
@@ -587,17 +782,11 @@ function FormSection({ title, icon, children }) {
 const SelectField = React.forwardRef(function SelectField({ options, ...props }, ref) {
   return (
     <div className="relative">
-      <select
-        ref={ref}
-        className="form-input appearance-none pr-9 cursor-pointer"
-        {...props}
-      >
+      <select ref={ref}
+        className="form-input appearance-none pr-9 cursor-pointer" {...props}>
         {options.map(opt => (
-          <option
-            key={opt}
-            value={opt.startsWith('Select') ? '' : opt}
-            disabled={opt.startsWith('Select')}
-          >
+          <option key={opt} value={opt.startsWith('Select') ? '' : opt}
+            disabled={opt.startsWith('Select')}>
             {opt}
           </option>
         ))}
@@ -618,12 +807,8 @@ function AttendanceCard({ value, label, sub, checked, register }) {
                     ? 'border-gold-500 bg-gold-500/10'
                     : 'border-navy-700 hover:border-navy-500'}`}
     >
-      <input
-        type="radio"
-        value={value}
-        className="mt-1 accent-gold-500 flex-shrink-0"
-        {...register}
-      />
+      <input type="radio" value={value}
+        className="mt-1 accent-gold-500 flex-shrink-0" {...register} />
       <div>
         <p className={`font-sans text-sm font-semibold leading-snug
                        ${checked ? 'text-gold-300' : 'text-ivory-200'}`}>
