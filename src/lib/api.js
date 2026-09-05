@@ -6,10 +6,10 @@ export async function submitRegistration(formData) {
   if (!isSupabaseConfigured) {
     console.warn('Supabase not configured — returning mock data')
     return {
-      registration_id:    generateRegistrationId(),
-      full_name:          formData.fullName,
-      phone:              formData.phone,
-      attendance_status:  formData.attendance,
+      registration_id:   generateRegistrationId(),
+      full_name:         formData.fullName,
+      phone:             formData.phone,
+      attendance_status: formData.attendance,
     }
   }
 
@@ -42,23 +42,7 @@ export async function submitRegistration(formData) {
     .single()
 
   if (error) throw error
-
-  // Email notification (non-blocking)
-  triggerRegistrationEmail(data)
-
   return data
-}
-
-async function triggerRegistrationEmail(registration) {
-  try {
-    const { data, error } = await supabase.functions.invoke('send-registration-email', {
-      body: { registration },
-    })
-    if (error) console.error('Registration email error:', error)
-    else console.log('Registration email sent:', data)
-  } catch (err) {
-    console.error('Registration email invoke failed:', err)
-  }
 }
 
 // ── CONTRIBUTIONS ────────────────────────────────────────────
@@ -66,7 +50,7 @@ async function triggerRegistrationEmail(registration) {
 /**
  * Submit a contribution with optional screenshot file.
  * @param {object} contributionData
- * @param {File|null} screenshotFile  - Optional payment screenshot
+ * @param {File|null} screenshotFile
  */
 export async function submitContribution(contributionData, screenshotFile = null) {
   if (!isSupabaseConfigured) {
@@ -75,13 +59,8 @@ export async function submitContribution(contributionData, screenshotFile = null
   }
 
   let screenshotUrl = null
-
-  // Upload screenshot if provided
   if (screenshotFile) {
-    screenshotUrl = await uploadScreenshot(
-      contributionData.registrationId,
-      screenshotFile
-    )
+    screenshotUrl = await uploadScreenshot(contributionData.registrationId, screenshotFile)
   }
 
   const payload = {
@@ -94,7 +73,7 @@ export async function submitContribution(contributionData, screenshotFile = null
     payment_method:      'UPI',
     transaction_id:      null,
     screenshot_url:      screenshotUrl,
-    payment_status:      contributionData.status || 'SUBMITTED',
+    payment_status:      'SUBMITTED',
     created_at:          new Date().toISOString(),
   }
 
@@ -105,58 +84,49 @@ export async function submitContribution(contributionData, screenshotFile = null
     .single()
 
   if (error) throw error
-
-  // Email notification (non-blocking)
-  triggerContributionEmail(data)
-
   return data
 }
 
+/**
+ * Upload screenshot to payment-screenshots bucket.
+ * Bucket must be PUBLIC so admin can view images.
+ * Returns the public URL, or null on failure.
+ */
 async function uploadScreenshot(registrationId, file) {
   try {
-    const ext      = file.name.split('.').pop()
+    const ext      = file.name.split('.').pop().toLowerCase()
     const fileName = `${registrationId}-${Date.now()}.${ext}`
 
-    const { error } = await supabase.storage
+    const { error: uploadError } = await supabase.storage
       .from('payment-screenshots')
-      .upload(fileName, file, {
-        contentType: file.type,
-        upsert: false,
-      })
+      .upload(fileName, file, { contentType: file.type, upsert: false })
 
-    if (error) {
-      console.error('Screenshot upload error:', error)
+    if (uploadError) {
+      console.error('Screenshot upload error:', uploadError.message)
       return null
     }
 
-    // Bucket is PRIVATE — store the storage path only.
-    // The Edge Function uses the service role key to generate
-    // a signed URL server-side when sending the admin email.
-    return fileName
+    const { data } = supabase.storage
+      .from('payment-screenshots')
+      .getPublicUrl(fileName)
+
+    return data?.publicUrl || null
   } catch (err) {
     console.error('Screenshot upload failed:', err)
     return null
   }
 }
 
-async function triggerContributionEmail(contribution) {
-  try {
-    const { data, error } = await supabase.functions.invoke('send-contribution-email', {
-      body: { contribution },
-    })
-    if (error) console.error('Contribution email error:', error)
-    else console.log('Contribution email sent:', data)
-  } catch (err) {
-    console.error('Contribution email invoke failed:', err)
-  }
-}
-
 // ── ADMIN ────────────────────────────────────────────────────
 
+/**
+ * Fetch ALL registrations with their linked contribution (if any).
+ * Left-join style: registrations without contributions are included.
+ */
 export async function getAllRegistrations() {
   const { data, error } = await supabase
     .from('registrations')
-    .select('*, contributions(contribution_amount, payment_status, screenshot_url)')
+    .select('*, contributions(id, contribution_amount, payment_status, screenshot_url, created_at)')
     .order('created_at', { ascending: false })
   if (error) throw error
   return data

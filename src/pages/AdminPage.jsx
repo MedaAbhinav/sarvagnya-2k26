@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LogOut, RefreshCw, Download, Search, Eye,
-  CheckCircle2, XCircle, Clock, Users, Heart,
-  Utensils, Home, TrendingUp, ChevronDown, X, Loader2
+  CheckCircle2, XCircle, Users, Heart,
+  Utensils, Home, TrendingUp, ChevronDown, X, Loader2,
+  ImageIcon,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { getAllRegistrations, getAllContributions, updatePaymentStatus } from '../lib/api'
+import { getAllRegistrations, updatePaymentStatus } from '../lib/api'
 import { formatCurrency, formatDate, exportToCSV } from '../lib/utils'
 import { COLLEGE, EVENT } from '../config'
 
@@ -14,33 +15,31 @@ const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD || 'admin'
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function StatusBadge({ status }) {
-  const map = {
-    SUBMITTED: { cls: 'status-pending',  icon: <Clock size={11} />,        label: 'Submitted' },
-    VERIFIED:  { cls: 'status-verified', icon: <CheckCircle2 size={11} />, label: 'Verified'  },
-    REJECTED:  { cls: 'status-rejected', icon: <XCircle size={11} />,      label: 'Rejected'  },
+function AttendanceBadge({ status }) {
+  const cls = {
+    Yes:   'bg-green-900/40 text-green-300 border border-green-700/40',
+    No:    'bg-red-900/40   text-red-300   border border-red-700/40',
   }
-  const s = map[status] || map.SUBMITTED
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold
-                      font-sans rounded-sm ${s.cls}`}>
-      {s.icon}{s.label}
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-sans
+                      font-semibold rounded-sm ${cls[status] || 'text-navy-500'}`}>
+      {status || '—'}
     </span>
   )
 }
 
-function AttendanceBadge({ status }) {
-  const cls = {
-    Yes:   'bg-green-900/40 text-green-300 border border-green-700/40',
-    No:    'bg-red-900/40 text-red-300 border border-red-700/40',
-    Maybe: 'bg-yellow-900/40 text-yellow-300 border border-yellow-700/40',
-  }
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-sans
-                      font-semibold rounded-sm ${cls[status] || ''}`}>
-      {status || '—'}
-    </span>
-  )
+function ContribBadge({ contributed }) {
+  return contributed
+    ? <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold
+                        font-sans rounded-sm bg-gold-500/15 text-gold-400
+                        border border-gold-500/30">
+        <CheckCircle2 size={10} /> Contributed
+      </span>
+    : <span className="inline-flex items-center px-2 py-0.5 text-xs font-semibold
+                        font-sans rounded-sm bg-navy-800 text-navy-500
+                        border border-navy-700">
+        Not Contributed
+      </span>
 }
 
 function StatCard({ label, value, icon, accent = false }) {
@@ -66,29 +65,22 @@ export default function AdminPage() {
   const [loginError, setLoginError] = useState('')
 
   const [registrations, setRegistrations] = useState([])
-  const [contributions, setContributions] = useState([])
   const [loading, setLoading]             = useState(false)
-  const [tab, setTab]                     = useState('registrations')
 
-  const [search, setSearch]               = useState('')
+  const [search, setSearch]                     = useState('')
   const [filterAttendance, setFilterAttendance] = useState('')
+  const [filterContrib, setFilterContrib]       = useState('')
   const [filterFood, setFilterFood]             = useState('')
-  const [filterPayment, setFilterPayment]       = useState('')
 
-  const [selectedReg, setSelectedReg]     = useState(null)
-  const [selectedCon, setSelectedCon]     = useState(null)
-  const [updatingId, setUpdatingId]       = useState(null)
-  const [adminNote, setAdminNote]         = useState('')
+  const [selectedReg, setSelectedReg]   = useState(null)
+  const [updatingId, setUpdatingId]     = useState(null)
+  const [screenshotModal, setScreenshotModal] = useState(null)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
     try {
-      const [regs, cons] = await Promise.all([
-        getAllRegistrations(),
-        getAllContributions(),
-      ])
+      const regs = await getAllRegistrations()
       setRegistrations(regs || [])
-      setContributions(cons || [])
     } catch {
       toast.error('Failed to load data. Check Supabase configuration.')
     } finally {
@@ -104,19 +96,17 @@ export default function AdminPage() {
     else setLoginError('Incorrect password.')
   }
 
-  async function handleStatusUpdate(id, status) {
-    setUpdatingId(id)
+  async function handleStatusUpdate(contributionId, status) {
+    setUpdatingId(contributionId)
     try {
-      await updatePaymentStatus(id, status, adminNote || null)
+      await updatePaymentStatus(contributionId, status)
       toast.success(`Marked as ${status}`)
-      setAdminNote('')
-      setSelectedCon(null)
       fetchData()
     } catch { toast.error('Failed to update.') }
     finally { setUpdatingId(null) }
   }
 
-  // ── Stats ─────────────────────────────────────────────────
+  // ── Derived stats ─────────────────────────────────────────
   const stats = {
     total:         registrations.length,
     attending:     registrations.filter(r => r.attendance_status === 'Yes').length,
@@ -125,40 +115,62 @@ export default function AdminPage() {
     veg:           registrations.filter(r => r.food_preference === 'Vegetarian').length,
     nonVeg:        registrations.filter(r => r.food_preference === 'Non-Vegetarian').length,
     accommodation: registrations.filter(r => r.accommodation_required).length,
-    totalContr:    contributions.length,
-    verified:      contributions.filter(c => c.payment_status === 'VERIFIED').length,
-    submitted:     contributions.filter(c => c.payment_status === 'SUBMITTED').length,
-    totalAmount:   contributions
-                     .filter(c => c.payment_status === 'VERIFIED')
-                     .reduce((s, c) => s + (c.contribution_amount || 0), 0),
-    totalSubmittedAmount: contributions
-                     .reduce((s, c) => s + (c.contribution_amount || 0), 0),
+    contributed:   registrations.filter(r => r.contributions?.length > 0).length,
+    totalAmount:   registrations.reduce((s, r) => {
+                     const c = r.contributions?.[0]
+                     return s + (c ? (c.contribution_amount || 0) : 0)
+                   }, 0),
   }
 
-  // ── Filtered registrations ────────────────────────────────
-  const filteredRegs = registrations.filter(r => {
+  // ── Filtered ──────────────────────────────────────────────
+  const filtered = registrations.filter(r => {
     const q = search.toLowerCase()
+    const con = r.contributions?.[0]
+    const hasContrib = !!con
+
     const matchSearch = !q ||
       r.full_name?.toLowerCase().includes(q) ||
       r.phone?.includes(q) ||
       r.registration_id?.toLowerCase().includes(q)
-    const matchAtt  = !filterAttendance || r.attendance_status === filterAttendance
-    const matchFood = !filterFood       || r.food_preference   === filterFood
-    return matchSearch && matchAtt && matchFood
+    const matchAtt    = !filterAttendance || r.attendance_status === filterAttendance
+    const matchFood   = !filterFood       || r.food_preference   === filterFood
+    const matchContrib =
+      !filterContrib ||
+      (filterContrib === 'yes' && hasContrib) ||
+      (filterContrib === 'no'  && !hasContrib)
+
+    return matchSearch && matchAtt && matchFood && matchContrib
   })
 
-  // ── Filtered contributions ────────────────────────────────
-  const filteredCons = contributions.filter(c => {
-    const q = search.toLowerCase()
-    const matchSearch = !q ||
-      c.alumni_name?.toLowerCase().includes(q) ||
-      c.phone?.includes(q) ||
-      c.registration_id?.toLowerCase().includes(q)
-    const matchPayment = !filterPayment || c.payment_status === filterPayment
-    return matchSearch && matchPayment
-  })
+  // ── CSV export helper — flatten registration + contribution ─
+  function exportAll() {
+    const rows = filtered.map(r => {
+      const con = r.contributions?.[0]
+      return {
+        registration_id:    r.registration_id,
+        full_name:          r.full_name,
+        phone:              r.phone,
+        batch:              r.batch || '2006',
+        gender:             r.gender || '',
+        attendance:         r.attendance_status,
+        family_members:     r.family_members ?? 0,
+        arrival_date:       r.arrival_date    || '',
+        arrival_time:       r.arrival_time    || '',
+        departure_date:     r.departure_date  || '',
+        departure_time:     r.departure_time  || '',
+        food_preference:    r.food_preference || '',
+        accommodation:      r.accommodation_required ? 'Yes' : 'No',
+        contributed:        con ? 'Yes' : 'No',
+        contribution_amount: con ? con.contribution_amount : '',
+        contribution_status: con ? con.payment_status      : '',
+        screenshot:         con?.screenshot_url ? 'Yes' : 'No',
+        registered_at:      r.created_at,
+      }
+    })
+    exportToCSV(rows, 'sarvagnya-2k26-registrations')
+  }
 
-  // ── Login screen ──────────────────────────────────────────
+  // ── Login ─────────────────────────────────────────────────
   if (!authed) {
     return (
       <div className="min-h-screen bg-navy-950 flex items-center justify-center px-4">
@@ -205,11 +217,9 @@ export default function AdminPage() {
 
       {/* Top bar */}
       <div className="sticky top-0 z-40 bg-navy-900/95 border-b border-navy-800 navbar-glass">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center
-                        justify-between gap-4">
+        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
-            <span className="font-serif text-gold-400 text-base font-bold
-                             whitespace-nowrap">
+            <span className="font-serif text-gold-400 text-base font-bold whitespace-nowrap">
               Admin Dashboard
             </span>
             <span className="hidden sm:inline font-sans text-navy-500 text-xs truncate">
@@ -217,20 +227,13 @@ export default function AdminPage() {
             </span>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
-            <button
-              onClick={fetchData}
-              disabled={loading}
-              className="btn-ghost text-xs gap-1.5 py-1.5"
-              aria-label="Refresh data"
-            >
+            <button onClick={fetchData} disabled={loading}
+              className="btn-ghost text-xs gap-1.5 py-1.5" aria-label="Refresh">
               <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
-            <button
-              onClick={() => setAuthed(false)}
-              className="btn-ghost text-xs text-red-400 hover:text-red-300
-                         gap-1.5 py-1.5"
-            >
+            <button onClick={() => setAuthed(false)}
+              className="btn-ghost text-xs text-red-400 hover:text-red-300 gap-1.5 py-1.5">
               <LogOut size={13} />
               <span className="hidden sm:inline">Logout</span>
             </button>
@@ -240,63 +243,42 @@ export default function AdminPage() {
 
       <div className="max-w-7xl mx-auto px-4 py-8">
 
-        {/* Stats — row 1 */}
+        {/* Stats */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
-          <StatCard label="Registered"    value={stats.total}         icon={<Users size={22}/>}   accent />
-          <StatCard label="Attending"     value={stats.attending}     icon="✅" />
-          <StatCard label="Not Attending" value={stats.notAttending}  icon="❌" />
-          <StatCard label="Total Guests"  value={stats.totalGuests}   icon="👨‍👩‍👧" />
+          <StatCard label="Registered"    value={stats.total}        icon={<Users size={22}/>} accent />
+          <StatCard label="Attending"     value={stats.attending}    icon="✅" />
+          <StatCard label="Not Attending" value={stats.notAttending} icon="❌" />
+          <StatCard label="Total Guests"  value={stats.totalGuests}  icon="👨‍👩‍👧" />
         </div>
-
-        {/* Stats — row 2 */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
           <StatCard label="Vegetarian"    value={stats.veg}           icon={<Utensils size={22}/>} />
           <StatCard label="Non-Veg"       value={stats.nonVeg}        icon="🍖" />
           <StatCard label="Accommodation" value={stats.accommodation} icon={<Home size={22}/>} />
-          <StatCard label="Contributions" value={stats.totalContr}    icon={<TrendingUp size={22}/>} accent />
+          <StatCard label="Contributed"   value={stats.contributed}   icon={<TrendingUp size={22}/>} accent />
         </div>
-
-        {/* Contribution summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-10">
           <StatCard
-            label="Submitted Amount"
-            value={formatCurrency(stats.totalSubmittedAmount)}
-            icon={<Heart size={22}/>}
-          />
-          <StatCard
-            label="Verified Amount"
+            label="Total Contributions"
             value={formatCurrency(stats.totalAmount)}
-            icon={<CheckCircle2 size={22}/>}
+            icon={<Heart size={22}/>}
             accent
           />
           <StatCard
-            label="Awaiting Verify"
-            value={stats.submitted}
-            icon={<Clock size={22}/>}
+            label="Not Contributed"
+            value={stats.total - stats.contributed}
+            icon="—"
           />
         </div>
 
-        {/* Tabs + controls */}
+        {/* Controls */}
         <div className="flex flex-col sm:flex-row gap-4 items-start
                         sm:items-center justify-between mb-6">
-          <div className="flex gap-1 bg-navy-900 border border-navy-800 p-1">
-            {['registrations', 'contributions'].map(t => (
-              <button
-                key={t}
-                onClick={() => { setTab(t); setSearch('') }}
-                className={`px-5 py-2 font-sans text-sm font-medium
-                            transition-all duration-200 capitalize
-                            ${tab === t
-                              ? 'bg-gold-500 text-navy-950'
-                              : 'text-ivory-400 hover:text-ivory-200'}`}
-              >
-                {t} ({t === 'registrations' ? filteredRegs.length : filteredCons.length})
-              </button>
-            ))}
-          </div>
+          <p className="font-sans text-ivory-400/60 text-sm">
+            Showing <strong className="text-ivory-200">{filtered.length}</strong> of{' '}
+            {registrations.length} registrations
+          </p>
 
           <div className="flex flex-wrap gap-2 items-center w-full sm:w-auto">
-            {/* Search */}
             <div className="relative flex-1 sm:flex-none">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2
                                             text-navy-400 pointer-events-none" />
@@ -309,25 +291,15 @@ export default function AdminPage() {
               />
             </div>
 
-            {/* Filters */}
-            {tab === 'registrations' && <>
-              <FilterSelect value={filterAttendance} onChange={setFilterAttendance}
-                options={[['','All Attendance'],['Yes','Attending'],['No','Not Attending']]} />
-              <FilterSelect value={filterFood} onChange={setFilterFood}
-                options={[['','All Food'],['Vegetarian','Veg'],['Non-Vegetarian','Non-Veg']]} />
-            </>}
-            {tab === 'contributions' &&
-              <FilterSelect value={filterPayment} onChange={setFilterPayment}
-                options={[['','All'],['SUBMITTED','Submitted'],['VERIFIED','Verified'],['REJECTED','Rejected']]} />
-            }
+            <FilterSelect value={filterAttendance} onChange={setFilterAttendance}
+              options={[['','All Attendance'],['Yes','Attending'],['No','Not Attending']]} />
+            <FilterSelect value={filterContrib} onChange={setFilterContrib}
+              options={[['','All Contributions'],['yes','Contributed'],['no','Not Contributed']]} />
+            <FilterSelect value={filterFood} onChange={setFilterFood}
+              options={[['','All Food'],['Vegetarian','Veg'],['Non-Vegetarian','Non-Veg']]} />
 
-            {/* Export */}
             <button
-              onClick={() =>
-                tab === 'registrations'
-                  ? exportToCSV(filteredRegs, 'registrations')
-                  : exportToCSV(filteredCons, 'contributions')
-              }
+              onClick={exportAll}
               className="btn-ghost text-xs gap-1.5 py-2 border border-navy-700
                          hover:border-navy-500"
             >
@@ -343,14 +315,14 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* ── Registrations table ── */}
-        {!loading && tab === 'registrations' && (
+        {/* ── Registrations table — ALL registrations ── */}
+        {!loading && (
           <div className="overflow-x-auto rounded-sm border border-navy-800">
-            <table className="w-full text-sm font-sans min-w-[700px]">
+            <table className="w-full text-sm font-sans min-w-[900px]">
               <thead>
                 <tr className="bg-navy-900 border-b border-navy-800">
-                  {['Name','Phone','Attendance','Guests','Food',
-                    'Accom.','Contribution','Registered'].map(h => (
+                  {['Name','Phone','Att.','Guests','Food','Accom.',
+                    'Contribution','Amount','Screenshot','Registered'].map(h => (
                     <th key={h}
                       className="px-4 py-3 text-left text-ivory-400/50 text-xs
                                  tracking-widest uppercase font-medium whitespace-nowrap">
@@ -361,23 +333,22 @@ export default function AdminPage() {
                 </tr>
               </thead>
               <tbody>
-                {filteredRegs.length === 0 ? (
+                {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center
-                                               text-navy-500 font-sans text-sm">
+                    <td colSpan={11}
+                      className="px-4 py-12 text-center text-navy-500 font-sans text-sm">
                       {registrations.length === 0
                         ? 'No registrations yet.'
                         : 'No results match your filters.'}
                     </td>
                   </tr>
-                ) : filteredRegs.map((r, i) => {
+                ) : filtered.map((r, i) => {
                   const con = r.contributions?.[0]
                   return (
                     <tr key={r.id || i}
-                      className="border-b border-navy-800/50
-                                 hover:bg-navy-900/50 transition-colors">
-                      <td className="px-4 py-3 font-semibold text-ivory-200
-                                     whitespace-nowrap">
+                      className="border-b border-navy-800/50 hover:bg-navy-900/50
+                                 transition-colors">
+                      <td className="px-4 py-3 font-semibold text-ivory-200 whitespace-nowrap">
                         {r.full_name}
                       </td>
                       <td className="px-4 py-3 text-ivory-400 font-mono text-xs">
@@ -389,29 +360,44 @@ export default function AdminPage() {
                       <td className="px-4 py-3 text-ivory-400 text-center">
                         {r.family_members ?? 0}
                       </td>
-                      <td className="px-4 py-3 text-ivory-400/70 whitespace-nowrap text-xs">
+                      <td className="px-4 py-3 text-ivory-400/70 text-xs whitespace-nowrap">
                         {r.food_preference || '—'}
                       </td>
                       <td className="px-4 py-3 text-center text-sm">
                         {r.accommodation_required ? '✅' : '—'}
                       </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {con ? (
-                          <span className="text-gold-400 font-semibold text-sm">
-                            {formatCurrency(con.contribution_amount)}
-                          </span>
-                        ) : (
-                          <span className="text-navy-600 text-xs">—</span>
-                        )}
+                      <td className="px-4 py-3">
+                        <ContribBadge contributed={!!con} />
                       </td>
-                      <td className="px-4 py-3 text-ivory-400/50 whitespace-nowrap text-xs">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {con
+                          ? <span className="text-gold-400 font-semibold">
+                              {formatCurrency(con.contribution_amount)}
+                            </span>
+                          : <span className="text-navy-600 text-xs">—</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {con?.screenshot_url
+                          ? <button
+                              onClick={() => setScreenshotModal(con.screenshot_url)}
+                              className="inline-flex items-center gap-1 text-gold-400
+                                         hover:text-gold-300 transition-colors text-xs
+                                         font-sans font-semibold"
+                            >
+                              <ImageIcon size={13} /> View
+                            </button>
+                          : <span className="text-navy-600 text-xs">Not uploaded</span>
+                        }
+                      </td>
+                      <td className="px-4 py-3 text-ivory-400/50 text-xs whitespace-nowrap">
                         {formatDate(r.created_at)}
                       </td>
                       <td className="px-4 py-3">
                         <button
                           onClick={() => setSelectedReg(r)}
                           className="text-navy-400 hover:text-gold-400 transition-colors"
-                          aria-label="View details"
+                          aria-label="View full details"
                         >
                           <Eye size={15} />
                         </button>
@@ -423,73 +409,13 @@ export default function AdminPage() {
             </table>
           </div>
         )}
-
-        {/* ── Contributions table ── */}
-        {!loading && tab === 'contributions' && (
-          <div className="overflow-x-auto rounded-sm border border-navy-800">
-            <table className="w-full text-sm font-sans min-w-[600px]">
-              <thead>
-                <tr className="bg-navy-900 border-b border-navy-800">
-                  {['Name','Phone','Amount','Status','Date'].map(h => (
-                    <th key={h}
-                      className="px-4 py-3 text-left text-ivory-400/50 text-xs
-                                 tracking-widest uppercase font-medium whitespace-nowrap">
-                      {h}
-                    </th>
-                  ))}
-                  <th className="px-4 py-3 w-10" />
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCons.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center
-                                               text-navy-500 font-sans text-sm">
-                      {contributions.length === 0
-                        ? 'No contributions yet.'
-                        : 'No results match your filters.'}
-                    </td>
-                  </tr>
-                ) : filteredCons.map((c, i) => (
-                  <tr key={c.id || i}
-                    className="border-b border-navy-800/50
-                               hover:bg-navy-900/50 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-ivory-200 whitespace-nowrap">
-                      {c.alumni_name}
-                    </td>
-                    <td className="px-4 py-3 text-ivory-400/70 font-mono text-xs">
-                      {c.phone || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gold-400 font-semibold whitespace-nowrap">
-                      {formatCurrency(c.contribution_amount)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={c.payment_status} />
-                    </td>
-                    <td className="px-4 py-3 text-ivory-400/50 text-xs whitespace-nowrap">
-                      {formatDate(c.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => { setSelectedCon(c); setAdminNote('') }}
-                        className="text-navy-400 hover:text-gold-400 transition-colors"
-                        aria-label="Manage contribution"
-                      >
-                        <Eye size={15} />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
       </div>
 
-      {/* ── Registration detail modal ── */}
+      {/* ── Full registration detail modal ── */}
       <AnimatePresence>
         {selectedReg && (
           <Modal onClose={() => setSelectedReg(null)} title="Registration Details">
+            {/* Registration info */}
             <DetailGrid data={{
               'Registration ID':  selectedReg.registration_id,
               'Full Name':        selectedReg.full_name,
@@ -506,79 +432,120 @@ export default function AdminPage() {
               'Accommodation':    selectedReg.accommodation_required ? 'Yes' : 'No',
               'Registered At':    formatDate(selectedReg.created_at),
             }} />
+
+            {/* Contribution info */}
+            {(() => {
+              const con = selectedReg.contributions?.[0]
+              return (
+                <div className="mt-6 pt-5 border-t border-navy-700/50">
+                  <p className="font-sans text-ivory-400/50 text-xs tracking-widest
+                                uppercase mb-4">Contribution</p>
+                  {con ? (
+                    <div className="space-y-3">
+                      <DetailGrid data={{
+                        'Amount':     formatCurrency(con.contribution_amount),
+                        'Status':     con.payment_status,
+                        'Submitted':  formatDate(con.created_at),
+                      }} />
+
+                      {/* Screenshot + status update */}
+                      {con.screenshot_url && (
+                        <div className="mt-3">
+                          <button
+                            onClick={() => setScreenshotModal(con.screenshot_url)}
+                            className="btn-outline text-xs py-2 px-4 gap-2"
+                          >
+                            <ImageIcon size={13} /> View Payment Screenshot
+                          </button>
+                        </div>
+                      )}
+
+                      <div className="flex gap-3 mt-4">
+                        <button
+                          onClick={() => handleStatusUpdate(con.id, 'VERIFIED')}
+                          disabled={updatingId === con.id || con.payment_status === 'VERIFIED'}
+                          className="flex-1 btn-primary py-2.5 text-xs gap-1.5
+                                     disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {updatingId === con.id
+                            ? <Loader2 size={13} className="animate-spin" />
+                            : <CheckCircle2 size={13} />
+                          }
+                          Mark Verified
+                        </button>
+                        <button
+                          onClick={() => handleStatusUpdate(con.id, 'REJECTED')}
+                          disabled={updatingId === con.id || con.payment_status === 'REJECTED'}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5
+                                     py-2.5 px-4 text-xs font-sans font-semibold tracking-widest
+                                     uppercase border border-red-700/60 text-red-400
+                                     hover:bg-red-900/20 transition-all duration-200
+                                     disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          <XCircle size={13} /> Reject
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="font-sans text-navy-500 text-sm">
+                      This person did not contribute.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
           </Modal>
         )}
       </AnimatePresence>
 
-      {/* ── Contribution management modal ── */}
+      {/* ── Screenshot lightbox ── */}
       <AnimatePresence>
-        {selectedCon && (
-          <Modal onClose={() => setSelectedCon(null)} title="Manage Contribution">
-            <DetailGrid data={{
-              'Alumni Name':   selectedCon.alumni_name,
-              'Phone':         selectedCon.phone || '—',
-              'Reg ID':        selectedCon.registration_id || '—',
-              'Amount':        formatCurrency(selectedCon.contribution_amount),
-              'Status':        selectedCon.payment_status,
-              'Submitted At':  formatDate(selectedCon.created_at),
-            }} />
-
-            <div className="mt-6">
-              <label className="form-label">Admin Note (optional)</label>
-              <input
-                type="text"
-                value={adminNote}
-                onChange={e => setAdminNote(e.target.value)}
-                placeholder="Internal note"
-                className="form-input text-sm"
+        {screenshotModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-navy-950/95 flex items-center
+                       justify-center p-4"
+            onClick={() => setScreenshotModal(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.9 }}
+              animate={{ scale: 1 }}
+              exit={{ scale: 0.9 }}
+              onClick={e => e.stopPropagation()}
+              className="relative max-w-lg w-full"
+            >
+              <button
+                onClick={() => setScreenshotModal(null)}
+                className="absolute -top-10 right-0 text-ivory-400 hover:text-ivory-100
+                           transition-colors"
+                aria-label="Close"
+              >
+                <X size={24} />
+              </button>
+              <img
+                src={screenshotModal}
+                alt="Payment screenshot"
+                className="w-full rounded border border-navy-700 max-h-[80vh]
+                           object-contain bg-navy-900"
               />
-            </div>
-
-            <div className="flex gap-3 mt-6">
-              <button
-                onClick={() => handleStatusUpdate(selectedCon.id, 'VERIFIED')}
-                disabled={updatingId === selectedCon.id}
-                className="flex-1 btn-primary py-3 text-xs gap-2"
-              >
-                {updatingId === selectedCon.id
-                  ? <Loader2 size={14} className="animate-spin" />
-                  : <CheckCircle2 size={14} />
-                }
-                Mark Verified
-              </button>
-              <button
-                onClick={() => handleStatusUpdate(selectedCon.id, 'REJECTED')}
-                disabled={updatingId === selectedCon.id}
-                className="flex-1 inline-flex items-center justify-center gap-2
-                           py-3 px-4 text-xs font-sans font-semibold tracking-widest
-                           uppercase border border-red-700/60 text-red-400
-                           hover:bg-red-900/20 hover:text-red-300
-                           transition-all duration-200"
-              >
-                <XCircle size={14} />
-                Reject
-              </button>
-            </div>
-          </Modal>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
   )
 }
 
-// ── Helper components ─────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────
 
 function FilterSelect({ value, onChange, options }) {
   return (
     <div className="relative">
-      <select
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        className="form-input py-2 text-xs pr-7 appearance-none cursor-pointer"
-      >
-        {options.map(([v, l]) => (
-          <option key={v} value={v}>{l}</option>
-        ))}
+      <select value={value} onChange={e => onChange(e.target.value)}
+        className="form-input py-2 text-xs pr-7 appearance-none cursor-pointer">
+        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
       </select>
       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2
                                          text-navy-400 pointer-events-none" />
@@ -607,10 +574,8 @@ function Modal({ onClose, title, children }) {
         <div className="flex items-center justify-between mb-6 pb-4
                         border-b border-navy-700/50">
           <h3 className="font-serif text-ivory-100 text-lg font-semibold">{title}</h3>
-          <button
-            onClick={onClose}
-            className="text-navy-400 hover:text-ivory-200 transition-colors"
-          >
+          <button onClick={onClose}
+            className="text-navy-400 hover:text-ivory-200 transition-colors">
             <X size={20} />
           </button>
         </div>
@@ -625,8 +590,9 @@ function DetailGrid({ data }) {
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
       {Object.entries(data).map(([k, v]) => (
         <div key={k}>
-          <p className="font-sans text-ivory-400/50 text-xs tracking-widest
-                        uppercase mb-0.5">{k}</p>
+          <p className="font-sans text-ivory-400/50 text-xs tracking-widest uppercase mb-0.5">
+            {k}
+          </p>
           <p className="font-sans text-ivory-200 text-sm font-medium break-words">
             {String(v)}
           </p>

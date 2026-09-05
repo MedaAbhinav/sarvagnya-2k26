@@ -1,10 +1,10 @@
-import React, { useState } from 'react'
+import React, { useState, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   Loader2, CheckCircle2, ChevronDown,
-  Copy, Smartphone, Building2, Heart,
+  Copy, Smartphone, Building2, Heart, Upload, X,
 } from 'lucide-react'
 import { submitRegistration, submitContribution } from '../lib/api'
 import { EVENT, PAYMENT } from '../config'
@@ -26,12 +26,15 @@ const STEP = {
 }
 
 export default function RegistrationSection() {
-  const [step, setStep]           = useState(STEP.FORM)
-  const [formData, setFormData]   = useState(null)   // holds raw form values before save
-  const [amount, setAmount]       = useState('')
+  const [step, setStep]             = useState(STEP.FORM)
+  const [formData, setFormData]     = useState(null)
+  const [amount, setAmount]         = useState('')
+  const [screenshotFile, setScreenshotFile] = useState(null)
+  const [screenshotPreview, setScreenshotPreview] = useState(null)
   const [submitting, setSubmitting] = useState(false)
-  const [savedReg, setSavedReg]   = useState(null)
-  const [copied, setCopied]       = useState('')
+  const [savedReg, setSavedReg]     = useState(null)
+  const [copied, setCopied]         = useState('')
+  const fileRef = useRef(null)
 
   const numericAmount = parseFloat(amount) || 0
 
@@ -51,22 +54,35 @@ export default function RegistrationSection() {
     })
   }
 
+  function handleFileChange(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
+    if (!allowed.includes(file.type)) {
+      toast.error('Please upload a JPG, PNG or WebP image.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Screenshot must be under 5 MB.')
+      return
+    }
+    setScreenshotFile(file)
+    setScreenshotPreview(URL.createObjectURL(file))
+  }
+
   // ── Step 1: Validate form → go to contribution choice ──────
   function onFormContinue(data) {
     setFormData(data)
     setStep(STEP.CHOICE)
   }
 
-  // ── Shared save function ───────────────────────────────────
   async function saveEverything(withContribution) {
     setStep(STEP.SAVING)
     setSubmitting(true)
     try {
-      // 1. Save registration
       const reg = await submitRegistration(formData)
       setSavedReg(reg)
 
-      // 2. Save contribution (or NO record if not contributing)
       if (withContribution && numericAmount >= 1) {
         await submitContribution({
           registrationId: reg.registration_id,
@@ -74,10 +90,8 @@ export default function RegistrationSection() {
           phone:          reg.phone            || null,
           attendance:     reg.attendance_status || null,
           amount:         numericAmount,
-          status:         'SUBMITTED',
-        }, null)   // no screenshot in this flow
+        }, screenshotFile)  // pass screenshot file (may be null)
       }
-      // If not contributing, no contribution row is created
 
       setStep(STEP.DONE)
     } catch (err) {
@@ -87,7 +101,6 @@ export default function RegistrationSection() {
           ? 'This phone number is already registered.'
           : 'Something went wrong. Please try again.'
       )
-      // Go back to appropriate step on error
       setStep(withContribution ? STEP.PAY : STEP.CHOICE)
     } finally {
       setSubmitting(false)
@@ -416,11 +429,69 @@ export default function RegistrationSection() {
                       </motion.div>
                     )}
                   </AnimatePresence>
-                  <p className="font-sans text-ivory-400/35 text-xs mt-3 leading-relaxed">
-                    Please make the payment using the QR or bank details above,
-                    then click Complete Registration.
-                  </p>
                 </div>
+
+                {/* Screenshot upload — optional */}
+                <div className="mt-5">
+                  <label className="form-label">
+                    Payment Screenshot
+                    <span className="text-navy-500 font-normal ml-1 normal-case
+                                     tracking-normal text-xs">(optional)</span>
+                  </label>
+                  <p className="font-sans text-ivory-400/45 text-xs mb-3 leading-relaxed">
+                    After making the payment, you may upload a screenshot for your records.
+                    JPG, PNG or WebP · Max 5 MB.
+                  </p>
+
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    className="hidden"
+                    onChange={handleFileChange}
+                  />
+
+                  {screenshotPreview ? (
+                    <div className="border border-gold-500/30 bg-gold-500/5 p-4 space-y-3">
+                      <img
+                        src={screenshotPreview}
+                        alt="Payment screenshot preview"
+                        className="max-h-44 object-contain mx-auto rounded"
+                      />
+                      <div className="flex items-center justify-between">
+                        <p className="font-sans text-gold-400 text-xs truncate max-w-[200px]">
+                          {screenshotFile.name}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => { setScreenshotFile(null); setScreenshotPreview(null) }}
+                          className="text-navy-400 hover:text-red-400 transition-colors
+                                     text-xs inline-flex items-center gap-1 flex-shrink-0"
+                        >
+                          <X size={12} /> Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      className="w-full border-2 border-dashed border-navy-700
+                                 hover:border-navy-600 p-5 text-center
+                                 transition-colors duration-200 space-y-2"
+                    >
+                      <Upload size={22} className="text-navy-500 mx-auto" />
+                      <p className="font-sans text-ivory-400/55 text-sm">
+                        Tap to upload payment screenshot
+                      </p>
+                    </button>
+                  )}
+                </div>
+
+                <p className="font-sans text-ivory-400/30 text-xs mt-4 leading-relaxed">
+                  Make the payment using the QR or bank details above, then click
+                  Complete Registration.
+                </p>
               </div>
 
               {/* Buttons */}
