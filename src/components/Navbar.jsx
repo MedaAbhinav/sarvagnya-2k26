@@ -4,18 +4,17 @@ import { Menu, X } from 'lucide-react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { COLLEGE, EVENT } from '../config'
 
-// ONLY 3 nav links — Home | Registration | Support
+// Navigation: Home | Registration only — Support is now inside the registration form
 const navLinks = [
   { label: 'Home',         action: 'home' },
   { label: 'Registration', action: 'registration' },
-  { label: 'Support',      action: 'support' },
 ]
 
 export default function Navbar() {
-  const [scrolled, setScrolled] = useState(false)
-  const [menuOpen, setMenuOpen] = useState(false)
-  const navigate = useNavigate()
-  const location = useLocation()
+  const [scrolled, setScrolled]   = useState(false)
+  const [menuOpen, setMenuOpen]   = useState(false)
+  const navigate  = useNavigate()
+  const location  = useLocation()
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40)
@@ -30,15 +29,8 @@ export default function Navbar() {
 
   function handleNav(action) {
     setMenuOpen(false)
-    if (action === 'support') {
-      navigate('/support')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-      return
-    }
-    // For home / registration — must be on landing page
     if (location.pathname !== '/') {
       navigate('/')
-      // After navigation settles, scroll to section
       setTimeout(() => {
         if (action === 'registration') {
           document.querySelector('#registration')?.scrollIntoView({ behavior: 'smooth' })
@@ -67,33 +59,38 @@ export default function Navbar() {
             : 'bg-transparent border-b border-transparent'
           }`}
       >
-        <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 md:h-20 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 md:px-8 h-16 md:h-20
+                        flex items-center justify-between">
 
-          {/* Brand — clicking always goes HOME */}
+          {/* Brand */}
           <button
             onClick={() => handleNav('home')}
             className="flex flex-col items-start gap-0 group cursor-pointer flex-shrink-0"
             aria-label="Go to home"
           >
-            <span className="font-serif text-gold-400 text-base md:text-lg font-bold leading-none tracking-wide group-hover:text-gold-300 transition-colors duration-200">
+            <span className="font-serif text-gold-400 text-base md:text-lg font-bold
+                             leading-none tracking-wide group-hover:text-gold-300
+                             transition-colors duration-200">
               Sarvagnya
             </span>
-            <span className="font-sans text-ivory-300/55 text-[10px] tracking-[0.2em] uppercase leading-none mt-0.5">
+            <span className="font-sans text-ivory-300/55 text-[10px] tracking-[0.2em]
+                             uppercase leading-none mt-0.5">
               2K26 · {COLLEGE.location}
             </span>
           </button>
 
-          {/* Desktop links */}
+          {/* Desktop */}
           <div className="hidden md:flex items-center gap-7">
             {navLinks.map((link) => (
               <button
                 key={link.label}
                 onClick={() => handleNav(link.action)}
-                className="font-sans text-xs font-semibold text-ivory-300/75 hover:text-gold-400
-                           tracking-[0.18em] uppercase transition-colors duration-200
-                           relative after:absolute after:-bottom-0.5 after:left-0 after:right-0
-                           after:h-px after:bg-gold-500 after:scale-x-0 hover:after:scale-x-100
-                           after:transition-transform after:duration-300"
+                className="font-sans text-xs font-semibold text-ivory-300/75
+                           hover:text-gold-400 tracking-[0.18em] uppercase
+                           transition-colors duration-200 relative
+                           after:absolute after:-bottom-0.5 after:left-0 after:right-0
+                           after:h-px after:bg-gold-500 after:scale-x-0
+                           hover:after:scale-x-100 after:transition-transform after:duration-300"
               >
                 {link.label}
               </button>
@@ -106,7 +103,7 @@ export default function Navbar() {
             </button>
           </div>
 
-          {/* Mobile hamburger */}
+          {/* Mobile toggle */}
           <button
             className="md:hidden text-ivory-200 hover:text-gold-400 transition-colors p-1"
             onClick={() => setMenuOpen(v => !v)}
@@ -117,7 +114,7 @@ export default function Navbar() {
         </div>
       </motion.nav>
 
-      {/* Mobile Menu Overlay */}
+      {/* Mobile overlay */}
       <AnimatePresence>
         {menuOpen && (
           <motion.div
@@ -128,12 +125,11 @@ export default function Navbar() {
             className="fixed inset-0 z-40 bg-navy-950/98 navbar-glass flex flex-col"
           >
             <div className="h-16 flex items-center justify-between px-5">
-              <button
-                onClick={() => handleNav('home')}
-                className="flex flex-col items-start"
-              >
+              <button onClick={() => handleNav('home')} className="flex flex-col items-start">
                 <span className="font-serif text-gold-400 text-base font-bold">Sarvagnya</span>
-                <span className="font-sans text-ivory-400/50 text-[10px] tracking-[0.2em] uppercase">2K26 · {COLLEGE.location}</span>
+                <span className="font-sans text-ivory-400/50 text-[10px] tracking-[0.2em] uppercase">
+                  2K26 · {COLLEGE.location}
+                </span>
               </button>
               <button
                 onClick={() => setMenuOpen(false)}
@@ -174,7 +170,7 @@ export default function Navbar() {
               <motion.button
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.35 }}
+                transition={{ delay: 0.25 }}
                 onClick={() => handleNav('registration')}
                 className="btn-primary mt-2 text-sm px-10 py-4"
               >
@@ -182,7 +178,8 @@ export default function Navbar() {
               </motion.button>
             </div>
 
-            <p className="text-center text-navy-600 text-xs pb-6 font-sans tracking-widest uppercase">
+            <p className="text-center text-navy-600 text-xs pb-6 font-sans
+                          tracking-widest uppercase">
               {COLLEGE.fullName}
             </p>
           </motion.div>

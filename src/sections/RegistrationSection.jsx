@@ -1,21 +1,27 @@
-import React, { useState, useContext } from 'react'
+import React, { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Loader2, CheckCircle2, ChevronDown } from 'lucide-react'
-import { submitRegistration } from '../lib/api'
-import { RegistrationContext } from '../App'
-import { EVENT } from '../config'
+import {
+  Loader2, CheckCircle2, ChevronDown,
+  Copy, Smartphone, Building2, Heart,
+} from 'lucide-react'
+import { submitRegistration, submitContribution } from '../lib/api'
+import { EVENT, PAYMENT, REQUIRE_CONTRIBUTION_FOR_NON_ATTENDEES } from '../config'
+import { formatCurrency } from '../lib/utils'
 import ScrollReveal from '../components/ScrollReveal'
 import GoldDivider from '../components/GoldDivider'
 
+// QR image path — BASE_URL is '/' locally and '/sarvagnya-2k26/' on GitHub Pages
+// This ensures the image resolves correctly in both environments.
+const QR_SRC = `${import.meta.env.BASE_URL}upi-qr.jpeg`
+
 export default function RegistrationSection() {
-  const navigate = useNavigate()
-  const { setRegistrationData } = useContext(RegistrationContext)
   const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
-  const [savedData, setSavedData] = useState(null)
+  const [submitted,  setSubmitted]  = useState(false)
+  const [savedData,  setSavedData]  = useState(null)
+  const [amount,     setAmount]     = useState('')
+  const [copied,     setCopied]     = useState('')
 
   const {
     register,
@@ -25,17 +31,40 @@ export default function RegistrationSection() {
     reset,
   } = useForm({ defaultValues: { batch: '2006', familyMembers: '0' } })
 
-  const attendance = watch('attendance')
+  const attendance    = watch('attendance')
+  const numericAmount = parseFloat(amount) || 0
+  const canSubmit     = !submitting && numericAmount >= 1
+
+  function handleCopy(text, key) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(key)
+      setTimeout(() => setCopied(''), 2200)
+    })
+  }
 
   async function onSubmit(data) {
+    if (numericAmount < 1) {
+      toast.error('Please enter a contribution amount before completing registration.')
+      return
+    }
     setSubmitting(true)
     try {
-      const result = await submitRegistration(data)
-      setSavedData(result)
-      setRegistrationData(result)
+      // 1. Save registration
+      const regResult = await submitRegistration(data)
+      setSavedData(regResult)
+
+      // 2. Save contribution linked to registration
+      await submitContribution({
+        registrationId: regResult.registration_id,
+        alumniName:     regResult.full_name,
+        phone:          regResult.phone            || null,
+        attendance:     regResult.attendance_status || null,
+        amount:         numericAmount,
+      })
+
       setSubmitted(true)
       reset()
-      setTimeout(() => navigate('/support'), 3800)
+      setAmount('')
     } catch (err) {
       console.error(err)
       toast.error(
@@ -48,13 +77,73 @@ export default function RegistrationSection() {
     }
   }
 
-  return (
-    <section id="registration" className="section-pad relative overflow-hidden bg-navy-950">
+  // ── Success state ─────────────────────────────────────────
+  if (submitted && savedData) {
+    return (
+      <section id="registration"
+        className="section-pad bg-navy-950 relative overflow-hidden">
+        <div className="absolute inset-0 grain-overlay pointer-events-none" />
+        <div className="max-w-2xl mx-auto relative z-10">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.93 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.55, ease: 'easeOut' }}
+            className="premium-card text-center py-14 px-8"
+          >
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: 'spring', stiffness: 200, delay: 0.18 }}
+              className="mb-5"
+            >
+              <CheckCircle2 size={52} className="text-gold-400 mx-auto" />
+            </motion.div>
+            <p className="font-script text-gold-400 text-2xl mb-2">Thank You</p>
+            <h3 className="font-serif text-ivory-100 text-3xl font-bold mb-1">
+              2006 Batch ❤️
+            </h3>
+            <GoldDivider />
+            {savedData.attendance_status === 'No' ? (
+              <p className="font-sans text-ivory-300/80 text-base leading-relaxed
+                            mb-5 max-w-sm mx-auto mt-4">
+                Although we will miss having you on campus, your contribution will
+                help make Sarvagnya 2K26 truly memorable.
+              </p>
+            ) : (
+              <p className="font-sans text-ivory-300/80 text-base leading-relaxed
+                            mb-5 mt-4">
+                Your registration and contribution have been received. We look
+                forward to welcoming you on October 10!
+              </p>
+            )}
+            <div className="premium-card inline-block mb-4">
+              <p className="font-sans text-ivory-400/55 text-xs tracking-widest
+                            uppercase mb-1">
+                Registration ID
+              </p>
+              <p className="font-sans text-gold-400 font-mono text-sm font-bold
+                            tracking-wider">
+                {savedData.registration_id}
+              </p>
+            </div>
+            <p className="font-sans text-ivory-400/40 text-sm">
+              Please complete your payment using the QR / UPI details above.
+            </p>
+          </motion.div>
+        </div>
+      </section>
+    )
+  }
 
-      {/* Subtle decorative blurs */}
+  // ── Form ──────────────────────────────────────────────────
+  return (
+    <section id="registration"
+      className="section-pad relative overflow-hidden bg-navy-950">
       <div className="absolute inset-0 grain-overlay pointer-events-none" />
-      <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-gold-500/4 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-60 h-60 rounded-full bg-burgundy-700/6 blur-3xl pointer-events-none" />
+      <div className="absolute top-0 right-0 w-72 h-72 rounded-full
+                      bg-gold-500/4 blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-60 h-60 rounded-full
+                      bg-burgundy-700/6 blur-3xl pointer-events-none" />
 
       <div className="max-w-2xl mx-auto relative z-10">
 
@@ -66,288 +155,414 @@ export default function RegistrationSection() {
             <span className="text-gold-shimmer">Reconnect. Relive.</span>
           </h2>
           <GoldDivider />
-          <p className="font-sans text-ivory-300/70 text-base leading-relaxed mt-6 max-w-lg mx-auto">
-            We would be honoured to welcome you back to the campus where your journey began.
-            Register below for the{' '}
-            <strong className="text-gold-400">{EVENT.title}</strong>.
+          <p className="font-sans text-ivory-300/70 text-base leading-relaxed
+                        mt-6 max-w-lg mx-auto">
+            Register for the{' '}
+            <strong className="text-gold-400">{EVENT.title}</strong> and help us
+            make Sarvagnya 2K26 truly memorable.
           </p>
         </ScrollReveal>
 
-        {/* ── Success state ── */}
-        <AnimatePresence>
-          {submitted && savedData && (
-            <motion.div
-              initial={{ opacity: 0, scale: 0.93 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.55, ease: 'easeOut' }}
-              className="premium-card text-center py-14 px-8"
-            >
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: 'spring', stiffness: 200, delay: 0.18 }}
-                className="mb-5"
-              >
-                <CheckCircle2 size={52} className="text-gold-400 mx-auto" />
-              </motion.div>
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-8">
 
-              <p className="font-script text-gold-400 text-2xl mb-2">Thank You</p>
-              <h3 className="font-serif text-ivory-100 text-3xl font-bold mb-1">
-                2006 Batch ❤️
-              </h3>
-              <div className="w-14 h-px bg-gold-500/50 mx-auto my-4" />
+          {/* ── PERSONAL DETAILS ── */}
+          <ScrollReveal delay={50}>
+            <FormSection title="Personal Details" icon="👤">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
-              {/* Contextual message based on attendance */}
-              {savedData.attendance_status === 'No' ? (
-                <p className="font-sans text-ivory-300/80 text-base leading-relaxed mb-5 max-w-sm mx-auto">
-                  Although we will miss having you with us on campus, your connection with
-                  JNTU remains special. If you are able to, we sincerely request your support
-                  for the College Fest and Alumni Meet.
-                </p>
-              ) : (
-                <p className="font-sans text-ivory-300/80 text-base leading-relaxed mb-5">
-                  Your place in this homecoming is being remembered.
-                </p>
-              )}
-
-              <div className="premium-card inline-block mb-6">
-                <p className="font-sans text-ivory-400/55 text-xs tracking-widest uppercase mb-1">
-                  Registration ID
-                </p>
-                <p className="font-sans text-gold-400 font-mono text-sm font-bold tracking-wider">
-                  {savedData.registration_id}
-                </p>
-              </div>
-
-              <p className="font-sans text-ivory-400/45 text-sm">
-                {savedData.attendance_status === 'No'
-                  ? 'Taking you to the Support page…'
-                  : 'Taking you to the Support page in a moment…'}
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* ── Form ── */}
-        {!submitted && (
-          <ScrollReveal delay={100}>
-            <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-8">
-
-              {/* PERSONAL DETAILS */}
-              <FormSection title="Personal Details" icon="👤">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-
-                  {/* Full Name — full width */}
-                  <div className="md:col-span-2">
-                    <label className="form-label">Full Name <Req /></label>
-                    <input
-                      className={`form-input ${errors.fullName ? 'border-red-500' : ''}`}
-                      placeholder="Your full name"
-                      autoComplete="name"
-                      {...register('fullName', {
-                        required: 'Full name is required',
-                        minLength: { value: 2, message: 'Name is too short' },
-                      })}
-                    />
-                    {errors.fullName && <Err msg={errors.fullName.message} />}
-                  </div>
-
-                  {/* Phone */}
-                  <div className="md:col-span-2">
-                    <label className="form-label">Phone Number <Req /></label>
-                    <input
-                      className={`form-input ${errors.phone ? 'border-red-500' : ''}`}
-                      placeholder="+91 98765 43210"
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      {...register('phone', {
-                        required: 'Phone number is required',
-                        pattern: {
-                          value: /^[+]?[0-9\s\-()]{8,15}$/,
-                          message: 'Enter a valid phone number',
-                        },
-                      })}
-                    />
-                    {errors.phone && <Err msg={errors.phone.message} />}
-                  </div>
-
-                  {/* Batch — read-only */}
-                  <div>
-                    <label className="form-label">Batch</label>
-                    <input
-                      className="form-input bg-navy-800/50 cursor-not-allowed opacity-70"
-                      readOnly
-                      value="2006"
-                      {...register('batch')}
-                    />
-                  </div>
-
-                  {/* Gender */}
-                  <div>
-                    <label className="form-label">Gender</label>
-                    <SelectField
-                      {...register('gender')}
-                      options={['Prefer not to say', 'Male', 'Female']}
-                    />
-                  </div>
-
+                <div className="md:col-span-2">
+                  <label className="form-label">Full Name <Req /></label>
+                  <input
+                    className={`form-input ${errors.fullName ? 'border-red-500' : ''}`}
+                    placeholder="Your full name"
+                    autoComplete="name"
+                    {...register('fullName', {
+                      required: 'Full name is required',
+                      minLength: { value: 2, message: 'Name is too short' },
+                    })}
+                  />
+                  {errors.fullName && <Err msg={errors.fullName.message} />}
                 </div>
-              </FormSection>
 
-              {/* ATTENDANCE */}
-              <FormSection title="Attendance" icon="📅">
+                <div className="md:col-span-2">
+                  <label className="form-label">Phone Number <Req /></label>
+                  <input
+                    className={`form-input ${errors.phone ? 'border-red-500' : ''}`}
+                    placeholder="+91 98765 43210"
+                    type="tel"
+                    inputMode="tel"
+                    autoComplete="tel"
+                    {...register('phone', {
+                      required: 'Phone number is required',
+                      pattern: {
+                        value: /^[+]?[0-9\s\-()]{8,15}$/,
+                        message: 'Enter a valid phone number',
+                      },
+                    })}
+                  />
+                  {errors.phone && <Err msg={errors.phone.message} />}
+                </div>
+
                 <div>
-                  <label className="form-label">
-                    Will you attend the 2006 Batch Alumni Meet on October 10, 2026? <Req />
-                  </label>
-                  {errors.attendance && <Err msg={errors.attendance.message} />}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
-                    {[
-                      { value: 'Yes', label: 'Yes, I will attend ❤️',     sub: 'October 10, 2026' },
-                      { value: 'No',  label: 'No, I cannot attend',        sub: 'I will not be present' },
-                    ].map(opt => (
-                      <AttendanceCard
-                        key={opt.value}
-                        value={opt.value}
-                        label={opt.label}
-                        sub={opt.sub}
-                        checked={attendance === opt.value}
-                        register={register('attendance', { required: 'Please select attendance status' })}
+                  <label className="form-label">Batch</label>
+                  <input
+                    className="form-input bg-navy-800/50 cursor-not-allowed opacity-70"
+                    readOnly
+                    value="2006"
+                    {...register('batch')}
+                  />
+                </div>
+
+                <div>
+                  <label className="form-label">Gender</label>
+                  <SelectField
+                    {...register('gender')}
+                    options={['Prefer not to say', 'Male', 'Female']}
+                  />
+                </div>
+
+              </div>
+            </FormSection>
+          </ScrollReveal>
+
+          {/* ── ATTENDANCE ── */}
+          <ScrollReveal delay={80}>
+            <FormSection title="Attendance" icon="📅">
+              <div>
+                <label className="form-label">
+                  Will you attend the Alumni Meet on October 10, 2026? <Req />
+                </label>
+                {errors.attendance && <Err msg={errors.attendance.message} />}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+                  {[
+                    { value: 'Yes', label: 'Yes, I will attend ❤️',  sub: 'October 10, 2026'        },
+                    { value: 'No',  label: 'No, I cannot attend',     sub: 'I will not be present'  },
+                  ].map(opt => (
+                    <AttendanceCard
+                      key={opt.value}
+                      value={opt.value}
+                      label={opt.label}
+                      sub={opt.sub}
+                      checked={attendance === opt.value}
+                      register={register('attendance', {
+                        required: 'Please select attendance',
+                      })}
+                    />
+                  ))}
+                </div>
+              </div>
+            </FormSection>
+          </ScrollReveal>
+
+          {/* ── FAMILY + TRAVEL + FOOD — only for YES ── */}
+          <AnimatePresence>
+            {attendance === 'Yes' && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.35 }}
+                className="overflow-hidden space-y-8"
+              >
+                {/* Family */}
+                <FormSection title="Family" icon="👨‍👩‍👧">
+                  <div>
+                    <label className="form-label">Family members accompanying you</label>
+                    <input
+                      className="form-input w-28 text-center text-lg font-semibold"
+                      type="number"
+                      min="0"
+                      max="20"
+                      inputMode="numeric"
+                      {...register('familyMembers', {
+                        min: { value: 0, message: 'Cannot be negative' },
+                        max: { value: 20, message: 'Maximum 20' },
+                      })}
+                    />
+                    {errors.familyMembers && <Err msg={errors.familyMembers.message} />}
+                  </div>
+                </FormSection>
+
+                {/* Arrival / Departure */}
+                <FormSection title="Arrival & Departure" icon="✈️">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                      <label className="form-label">Arrival Date</label>
+                      <input className="form-input" type="date"
+                        {...register('arrivalDate')} />
+                    </div>
+                    <div>
+                      <label className="form-label">Arrival Time</label>
+                      <input className="form-input" type="time"
+                        {...register('arrivalTime')} />
+                    </div>
+                    <div>
+                      <label className="form-label">Departure Date</label>
+                      <input className="form-input" type="date"
+                        {...register('departureDate')} />
+                    </div>
+                    <div>
+                      <label className="form-label">Departure Time</label>
+                      <input className="form-input" type="time"
+                        {...register('departureTime')} />
+                    </div>
+                  </div>
+                </FormSection>
+
+                {/* Food + Accommodation */}
+                <FormSection title="Preferences" icon="🍽️">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                    <div>
+                      <label className="form-label">Food Preference</label>
+                      <SelectField
+                        {...register('foodPreference')}
+                        options={['Select preference', 'Vegetarian', 'Non-Vegetarian']}
                       />
-                    ))}
+                    </div>
+                    <div>
+                      <label className="form-label">Accommodation Required?</label>
+                      <SelectField
+                        {...register('accommodation')}
+                        options={['Select option', 'Yes', 'No']}
+                      />
+                    </div>
+                  </div>
+                </FormSection>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── SUPPORT THE CELEBRATIONS ── */}
+          <AnimatePresence>
+            {attendance && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5 }}
+              >
+                <div className="premium-card"
+                  style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
+
+                  <div className="flex items-center gap-3 mb-6 pb-5
+                                  border-b border-navy-700/50">
+                    <Heart size={18} className="text-gold-400 flex-shrink-0"
+                           fill="currentColor" />
+                    <h3 className="font-serif text-ivory-100 text-lg font-semibold">
+                      Support the Celebrations
+                    </h3>
+                  </div>
+
+                  {attendance === 'No' ? (
+                    <div className="mb-6 px-4 py-4 bg-gold-500/6
+                                    border border-gold-500/25">
+                      <p className="font-serif text-ivory-200 text-sm md:text-base
+                                    leading-relaxed italic text-center">
+                        "Although you cannot join us in person, your contribution
+                        can still become a part of this celebration."
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="font-sans text-ivory-300/75 text-sm leading-relaxed mb-6">
+                      Every contribution helps us make{' '}
+                      <strong className="text-gold-400">Sarvagnya 2K26</strong> and
+                      the 2006 Batch Alumni Meet truly memorable for students and
+                      alumni alike.
+                    </p>
+                  )}
+
+                  {/* Amount input */}
+                  <div className="mb-6">
+                    <label className="form-label">
+                      Contribution Amount (₹)
+                      <span className="text-gold-500 ml-1">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2
+                                       font-serif text-gold-400 text-2xl font-bold
+                                       pointer-events-none select-none">₹</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="Enter amount"
+                        value={amount}
+                        onChange={e => setAmount(e.target.value)}
+                        className="form-input pl-10 text-xl font-semibold
+                                   text-gold-300 py-4"
+                        inputMode="numeric"
+                        aria-label="Contribution amount in rupees"
+                      />
+                    </div>
+                    <AnimatePresence>
+                      {numericAmount > 0 && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0 }}
+                          className="mt-3 p-3 bg-gold-500/8 border
+                                     border-gold-500/20 text-center"
+                        >
+                          <span className="font-sans text-ivory-400/55 text-xs
+                                           tracking-widest uppercase mr-2">
+                            Your contribution:
+                          </span>
+                          <span className="font-serif text-gold-400 text-xl font-bold">
+                            {formatCurrency(numericAmount)}
+                          </span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Payment details */}
+                  <div className="border-t border-navy-700/40 pt-6">
+                    <p className="font-sans text-ivory-400/55 text-xs tracking-widest
+                                  uppercase mb-5 text-center">
+                      Complete payment using any method below
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+
+                      {/* QR */}
+                      <div className="text-center">
+                        <p className="font-sans text-ivory-400/50 text-xs
+                                      tracking-[0.2em] uppercase mb-3
+                                      flex items-center justify-center gap-1.5">
+                          <Smartphone size={12} />
+                          Scan with UPI App
+                        </p>
+                        <div className="inline-block bg-white p-3 mx-auto"
+                          style={{ lineHeight: 0 }}>
+                          <img
+                            src={QR_SRC}
+                            alt="PhonePe / UPI Payment QR Code"
+                            style={{
+                              display: 'block',
+                              width: '180px',
+                              height: 'auto',
+                              imageRendering: 'crisp-edges',
+                            }}
+                          />
+                        </div>
+                        <div className="mt-4 space-y-1">
+                          <p className="font-sans text-ivory-400/45 text-xs
+                                        tracking-widest uppercase">
+                            UPI ID
+                          </p>
+                          <div className="flex items-center justify-center gap-2">
+                            <span className="font-mono text-gold-400 font-semibold
+                                             text-sm tracking-wide">
+                              {PAYMENT.upiId}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(PAYMENT.upiId, 'upi')}
+                              className="text-navy-400 hover:text-gold-400
+                                         transition-colors"
+                              aria-label="Copy UPI ID"
+                            >
+                              {copied === 'upi'
+                                ? <CheckCircle2 size={13} className="text-green-400" />
+                                : <Copy size={13} />
+                              }
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bank */}
+                      <div>
+                        <p className="font-sans text-ivory-400/50 text-xs
+                                      tracking-[0.2em] uppercase mb-3
+                                      flex items-center gap-1.5">
+                          <Building2 size={12} />
+                          Bank Transfer
+                        </p>
+                        <div className="space-y-4">
+                          {[
+                            { label: 'Account Number', value: PAYMENT.accountNumber, key: 'acc'  },
+                            { label: 'IFSC Code',       value: PAYMENT.ifscCode,       key: 'ifsc' },
+                          ].map(({ label, value, key }) => (
+                            <div key={key}
+                              className="flex items-center justify-between gap-2">
+                              <div className="flex-1 min-w-0">
+                                <p className="font-sans text-ivory-400/40 text-xs
+                                              tracking-widest uppercase mb-0.5">
+                                  {label}
+                                </p>
+                                <p className="font-mono text-ivory-100 text-sm
+                                              font-semibold break-all">
+                                  {value}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleCopy(value, key)}
+                                className="text-navy-500 hover:text-gold-400
+                                           transition-colors flex-shrink-0"
+                                aria-label={`Copy ${label}`}
+                              >
+                                {copied === key
+                                  ? <CheckCircle2 size={13} className="text-green-400" />
+                                  : <Copy size={13} />
+                                }
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                    </div>
+
+                    <p className="font-sans text-ivory-400/30 text-xs text-center
+                                  mt-5 leading-relaxed">
+                      Complete your payment using the above QR or bank details
+                      after submitting registration.
+                    </p>
                   </div>
                 </div>
-              </FormSection>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-              {/* FAMILY — only shown when attending */}
-              <AnimatePresence>
-                {attendance === 'Yes' && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3 }}
-                    className="overflow-hidden"
-                  >
-                    <FormSection title="Family" icon="👨‍👩‍👧">
-                      <div>
-                        <label className="form-label">
-                          Family members accompanying you
-                        </label>
-                        <input
-                          className="form-input w-28 text-center text-lg font-semibold"
-                          type="number"
-                          min="0"
-                          max="20"
-                          inputMode="numeric"
-                          {...register('familyMembers', {
-                            min: { value: 0, message: 'Cannot be negative' },
-                            max: { value: 20, message: 'Maximum 20' },
-                          })}
-                        />
-                        {errors.familyMembers && <Err msg={errors.familyMembers.message} />}
-                      </div>
-                    </FormSection>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* TRAVEL — only shown when attending */}
-              <AnimatePresence>
-                {attendance === 'Yes' && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3, delay: 0.05 }}
-                    className="overflow-hidden"
-                  >
-                    <FormSection title="Arrival & Departure" icon="✈️">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                        <div>
-                          <label className="form-label">Expected Arrival Date</label>
-                          <input className="form-input" type="date" {...register('arrivalDate')} />
-                        </div>
-                        <div>
-                          <label className="form-label">Expected Arrival Time</label>
-                          <input className="form-input" type="time" {...register('arrivalTime')} />
-                        </div>
-                        <div>
-                          <label className="form-label">Expected Departure Date</label>
-                          <input className="form-input" type="date" {...register('departureDate')} />
-                        </div>
-                        <div>
-                          <label className="form-label">Expected Departure Time</label>
-                          <input className="form-input" type="time" {...register('departureTime')} />
-                        </div>
-                      </div>
-                    </FormSection>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* PREFERENCES — only shown when attending */}
-              <AnimatePresence>
-                {attendance === 'Yes' && (
-                  <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: 'auto' }}
-                    exit={{ opacity: 0, height: 0 }}
-                    transition={{ duration: 0.3, delay: 0.1 }}
-                    className="overflow-hidden"
-                  >
-                    <FormSection title="Preferences" icon="🍽️">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-                        <div>
-                          <label className="form-label">Food Preference</label>
-                          <SelectField
-                            {...register('foodPreference')}
-                            options={['Select preference', 'Vegetarian', 'Non-Vegetarian']}
-                          />
-                        </div>
-                        <div>
-                          <label className="form-label">Accommodation Required?</label>
-                          <SelectField
-                            {...register('accommodation')}
-                            options={['Select option', 'Yes', 'No']}
-                          />
-                        </div>
-                      </div>
-                    </FormSection>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-
-              {/* Submit */}
-              <div className="text-center pt-2">
+          {/* ── COMPLETE REGISTRATION — final button ── */}
+          <AnimatePresence>
+            {attendance && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="text-center pt-2"
+              >
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="btn-primary min-w-[240px] py-5 text-sm
-                             disabled:opacity-60 disabled:cursor-not-allowed"
+                  disabled={!canSubmit}
+                  className="btn-primary min-w-[260px] py-5 text-sm
+                             disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {submitting ? (
-                    <><Loader2 size={16} className="animate-spin" /> Registering…</>
-                  ) : (
-                    <>Complete Registration →</>
-                  )}
+                  {submitting
+                    ? <><Loader2 size={16} className="animate-spin" /> Registering…</>
+                    : <>Complete Registration →</>
+                  }
                 </button>
-                <p className="font-sans text-ivory-400/35 text-xs mt-4">
+                {numericAmount < 1 && (
+                  <p className="font-sans text-ivory-400/40 text-xs mt-2">
+                    Please enter a contribution amount to complete registration.
+                  </p>
+                )}
+                <p className="font-sans text-ivory-400/30 text-xs mt-3">
                   Your information is stored securely and will not be shared.
                 </p>
-              </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
-            </form>
-          </ScrollReveal>
-        )}
+        </form>
       </div>
     </section>
   )
 }
 
-// ── Small helpers ─────────────────────────────────────────────
+// ── Sub-components ────────────────────────────────────────────
 
 function Req() {
   return <span className="text-gold-500 ml-0.5">*</span>
@@ -378,12 +593,18 @@ const SelectField = React.forwardRef(function SelectField({ options, ...props },
         {...props}
       >
         {options.map(opt => (
-          <option key={opt} value={opt.startsWith('Select') ? '' : opt} disabled={opt.startsWith('Select')}>
+          <option
+            key={opt}
+            value={opt.startsWith('Select') ? '' : opt}
+            disabled={opt.startsWith('Select')}
+          >
             {opt}
           </option>
         ))}
       </select>
-      <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-navy-400 pointer-events-none" />
+      <ChevronDown size={15}
+        className="absolute right-3 top-1/2 -translate-y-1/2
+                   text-navy-400 pointer-events-none" />
     </div>
   )
 })
