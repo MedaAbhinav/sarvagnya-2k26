@@ -5,19 +5,16 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Required for GitHub Pages deployment via Actions
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Allow only one concurrent deployment
 concurrency:
   group: github-pages
   cancel-in-progress: false
 
 jobs:
-  # ── Job 1: Build ─────────────────────────────────────────────
   build:
     runs-on: ubuntu-latest
     steps:
@@ -38,7 +35,6 @@ jobs:
 
       - name: Build Vite project
         env:
-          GITHUB_PAGES: 'true'
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
@@ -48,11 +44,9 @@ jobs:
         with:
           path: ./dist
 
-  # ── Job 2: Deploy ────────────────────────────────────────────
   deploy:
     needs: build
     runs-on: ubuntu-latest
-    # Explicit permissions on the deploy job (required when jobs are split)
     permissions:
       pages: write
       id-token: write

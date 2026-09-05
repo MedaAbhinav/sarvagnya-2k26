@@ -1,13 +1,13 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Base path for GitHub Pages deployment:
-// https://medaabhinav.github.io/sarvagnya-2k26/
-const base = process.env.GITHUB_PAGES === 'true' ? '/sarvagnya-2k26/' : '/'
-
 export default defineConfig({
   plugins: [react()],
-  base,
+
+  // Fixed base path for GitHub Pages:
+  // https://medaabhinav.github.io/sarvagnya-2k26/
+  base: '/sarvagnya-2k26/',
+
   resolve: {
     alias: {
       '@': '/src',

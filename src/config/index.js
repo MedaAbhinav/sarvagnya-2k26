@@ -19,18 +19,18 @@ export const EVENT = {
 }
 
 export const PAYMENT = {
-  // From payment details file — actual values
+  // From payment details file — actual values, do not change
   upiId: 'ashoknaik985@ybl',
   accountNumber: '43063252956',
   ifscCode: 'SBIN0020858',
-  // Account Name and Branch intentionally excluded per organizer requirements
-  qrImage: '/sarvagnya-2k26/upi-qr.jpeg',
+  // Paths relative to public/ — Vite injects the correct base automatically
+  qrImage: '/upi-qr.jpeg',
 }
 
 export const ASSETS = {
-  // Paths use the GitHub Pages base so images load on production
-  groupPhoto: '/sarvagnya-2k26/grouppic.jpeg',
-  upiQr: '/sarvagnya-2k26/upi-qr.jpeg',
+  // Paths relative to public/ — Vite injects the correct base automatically
+  groupPhoto: '/grouppic.jpeg',
+  upiQr: '/upi-qr.jpeg',
 }
 
 // ── CONTRIBUTION SETTINGS ────────────────────────────────────
@@ -38,13 +38,8 @@ export const ASSETS = {
 export const REQUIRE_CONTRIBUTION_FOR_NON_ATTENDEES = true
 
 // ── PRODUCTION URL ───────────────────────────────────────────
-// This is the URL encoded in the WEBSITE QR on the invitation poster.
-// Different from the payment QR (which is the UPI QR image in the project).
 export const PUBLIC_SITE_URL = 'https://medaabhinav.github.io/sarvagnya-2k26/'
 
-// ── ADMIN EMAILS ─────────────────────────────────────────────
-// These are used by Supabase Edge Functions (server-side only).
-// They are listed here for documentation — NOT exposed as secrets.
-// Actual values are stored as Supabase Edge Function secrets:
-//   ADMIN_EMAIL_1 = medaabhinav7@gmail.com
-//   ADMIN_EMAIL_2 = narayanaashoknaik9@gmail.com
+// ── ADMIN EMAILS (documentation only — stored as Supabase secrets) ──
+// ADMIN_EMAIL_1 = medaabhinav7@gmail.com
+// ADMIN_EMAIL_2 = narayanaashoknaik9@gmail.com
