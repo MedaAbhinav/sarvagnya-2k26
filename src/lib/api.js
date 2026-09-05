@@ -25,8 +25,7 @@ export async function submitRegistration(formData) {
     created_at:             new Date().toISOString(),
   }
 
-  console.log('Submitting registration:', payload)
-
+  console.log('Submitting registration to Supabase...')
   const { data, error } = await supabase
     .from('registrations')
     .insert([payload])
@@ -34,11 +33,10 @@ export async function submitRegistration(formData) {
     .single()
 
   if (error) {
-    console.error('Registration insert error:', error.code, error.message, error.details)
+    console.error('Supabase error:', error.code, error.message)
     throw new Error(error.message)
   }
-
-  console.log('Registration saved:', data.registration_id)
+  console.log('Saved:', data.registration_id)
   return data
 }
 
@@ -64,8 +62,6 @@ export async function submitContribution(contributionData, screenshotFile = null
     created_at:          new Date().toISOString(),
   }
 
-  console.log('Submitting contribution:', payload)
-
   const { data, error } = await supabase
     .from('contributions')
     .insert([payload])
@@ -73,11 +69,9 @@ export async function submitContribution(contributionData, screenshotFile = null
     .single()
 
   if (error) {
-    console.error('Contribution insert error:', error.code, error.message, error.details)
+    console.error('Contribution error:', error.code, error.message)
     throw new Error(error.message)
   }
-
-  console.log('Contribution saved:', data.id)
   return data
 }
 
@@ -85,23 +79,14 @@ async function uploadScreenshot(registrationId, file) {
   try {
     const ext      = file.name.split('.').pop().toLowerCase()
     const fileName = `${registrationId}-${Date.now()}.${ext}`
-
-    const { error: uploadError } = await supabase.storage
+    const { error } = await supabase.storage
       .from('payment-screenshots')
       .upload(fileName, file, { contentType: file.type, upsert: false })
-
-    if (uploadError) {
-      console.error('Screenshot upload error:', uploadError.message)
-      return null
-    }
-
-    const { data } = supabase.storage
-      .from('payment-screenshots')
-      .getPublicUrl(fileName)
-
+    if (error) { console.error('Upload error:', error.message); return null }
+    const { data } = supabase.storage.from('payment-screenshots').getPublicUrl(fileName)
     return data?.publicUrl || null
   } catch (err) {
-    console.error('Screenshot upload failed:', err)
+    console.error('Screenshot failed:', err)
     return null
   }
 }
@@ -119,9 +104,7 @@ export async function getAllRegistrations() {
 
 export async function getAllContributions() {
   const { data, error } = await supabase
-    .from('contributions')
-    .select('*')
-    .order('created_at', { ascending: false })
+    .from('contributions').select('*').order('created_at', { ascending: false })
   if (error) throw error
   return data
 }
@@ -130,11 +113,7 @@ export async function updatePaymentStatus(contributionId, status, notes = null) 
   const update = { payment_status: status }
   if (notes) update.admin_notes = notes
   const { data, error } = await supabase
-    .from('contributions')
-    .update(update)
-    .eq('id', contributionId)
-    .select()
-    .single()
+    .from('contributions').update(update).eq('id', contributionId).select().single()
   if (error) throw error
   return data
 }
