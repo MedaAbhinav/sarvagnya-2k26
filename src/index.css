@@ -1,0 +1,199 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600;1,700&family=Dancing+Script:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-navy-950 text-ivory-100 font-sans antialiased;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background: rgba(196, 154, 56, 0.35);
+    color: #f0ead4;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #102a43;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #c49a38;
+    border-radius: 3px;
+  }
+}
+
+@layer components {
+  /* Gold divider line */
+  .gold-divider {
+    @apply w-24 h-px bg-gold-500 mx-auto my-4;
+  }
+
+  /* Premium serif headings */
+  .heading-xl {
+    @apply font-serif text-5xl md:text-6xl lg:text-7xl font-bold leading-tight tracking-tight;
+  }
+  .heading-lg {
+    @apply font-serif text-3xl md:text-4xl lg:text-5xl font-bold leading-tight;
+  }
+  .heading-md {
+    @apply font-serif text-2xl md:text-3xl font-semibold leading-snug;
+  }
+
+  /* Script accent */
+  .script-accent {
+    @apply font-script text-gold-400;
+  }
+
+  /* Premium button */
+  .btn-primary {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-4
+           bg-gold-500 hover:bg-gold-400 text-navy-950 font-sans font-semibold
+           tracking-widest uppercase text-sm rounded-none
+           transition-all duration-300 ease-out
+           hover:shadow-[0_0_32px_rgba(196,154,56,0.4)]
+           active:scale-95 cursor-pointer select-none;
+  }
+  .btn-outline {
+    @apply inline-flex items-center justify-center gap-2 px-8 py-4
+           border border-gold-500 text-gold-400 hover:bg-gold-500 hover:text-navy-950
+           font-sans font-semibold tracking-widest uppercase text-sm rounded-none
+           transition-all duration-300 ease-out cursor-pointer select-none;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 px-6 py-3
+           text-ivory-200 hover:text-gold-400
+           font-sans font-medium text-sm
+           transition-colors duration-200 cursor-pointer;
+  }
+
+  /* Form field */
+  .form-input {
+    @apply w-full bg-navy-900 border border-navy-700 focus:border-gold-500
+           text-ivory-100 placeholder-navy-400 font-sans text-sm
+           px-4 py-3 outline-none transition-colors duration-200
+           rounded-sm;
+  }
+  .form-label {
+    @apply block text-ivory-300 font-sans text-xs font-medium tracking-widest uppercase mb-2;
+  }
+  .form-error {
+    @apply text-red-400 text-xs mt-1 font-sans;
+  }
+
+  /* Section padding */
+  .section-pad {
+    @apply py-20 md:py-28 px-4 md:px-8;
+  }
+
+  /* Narrow container */
+  .container-narrow {
+    @apply max-w-2xl mx-auto;
+  }
+  .container-wide {
+    @apply max-w-6xl mx-auto;
+  }
+
+  /* Gold badge */
+  .gold-badge {
+    @apply inline-flex items-center gap-2 px-4 py-1.5
+           border border-gold-500/40 text-gold-400
+           font-sans text-xs font-semibold tracking-[0.2em] uppercase;
+  }
+
+  /* Card */
+  .premium-card {
+    @apply bg-navy-900/60 border border-navy-700/50 backdrop-blur-sm p-6;
+  }
+
+  /* Animate on scroll utility */
+  .reveal {
+    @apply opacity-0 translate-y-8 transition-all duration-700 ease-out;
+  }
+  .reveal.visible {
+    @apply opacity-100 translate-y-0;
+  }
+}
+
+/* Parallax hero image */
+.hero-image {
+  transition: transform 0.1s linear;
+  will-change: transform;
+}
+
+/* Navbar glass effect */
+.navbar-glass {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Grain texture overlay */
+.grain-overlay::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  pointer-events: none;
+  opacity: 0.35;
+}
+
+/* Gold shimmer text */
+.text-gold-shimmer {
+  background: linear-gradient(90deg, #c49a38 0%, #e8d5a3 40%, #c49a38 60%, #a67c20 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: shimmer 3s linear infinite;
+}
+
+@keyframes shimmer {
+  to { background-position: 200% center; }
+}
+
+/* Vintage photograph treatment */
+.photo-vintage {
+  filter: contrast(1.05) saturate(0.9) brightness(0.92);
+}
+
+/* Contribution amount button */
+.amount-btn {
+  @apply relative px-6 py-4 border border-navy-700 text-ivory-200
+         font-sans font-semibold text-lg
+         transition-all duration-200 cursor-pointer
+         hover:border-gold-500 hover:text-gold-400;
+}
+.amount-btn.selected {
+  @apply border-gold-500 text-gold-400 bg-gold-500/10;
+}
+.amount-btn.selected::after {
+  content: '✓';
+  @apply absolute top-1 right-2 text-gold-400 text-xs;
+}
+
+/* Payment status badges */
+.status-pending  { @apply bg-yellow-900/40 text-yellow-300 border border-yellow-700/40; }
+.status-verified { @apply bg-green-900/40  text-green-300  border border-green-700/40; }
+.status-rejected { @apply bg-red-900/40    text-red-300    border border-red-700/40; }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
+}
