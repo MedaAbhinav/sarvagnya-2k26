@@ -12,41 +12,36 @@ import { formatCurrency } from '../lib/utils'
 import ScrollReveal from '../components/ScrollReveal'
 import GoldDivider from '../components/GoldDivider'
 
-// QR: BASE_URL = '/' locally, '/sarvagnya-2k26/' on GitHub Pages
 const QR_SRC = `${import.meta.env.BASE_URL}upi-qr.jpeg`
 
-// ── Flow steps ────────────────────────────────────────────────
-// FORM → CHOICE → (PAY | SAVING) → DONE
+// Flow:
+// FORM → [save reg] → CHOICE → DONE
+//                    ↘ PAY  → [save contrib] → DONE
 const STEP = {
-  FORM:   'form',      // registration fields
-  CHOICE: 'choice',   // "would you like to contribute?"
-  PAY:    'pay',      // contribution amount + QR (only if YES)
-  SAVING: 'saving',   // saving to DB + sending emails
-  DONE:   'done',     // "Registration Successful"
+  FORM:    'form',
+  CHOICE:  'choice',
+  PAY:     'pay',
+  DONE:    'done',
 }
 
 export default function RegistrationSection() {
-  const [step, setStep]             = useState(STEP.FORM)
-  const [formData, setFormData]     = useState(null)
-  const [amount, setAmount]         = useState('')
-  const [screenshotFile, setScreenshotFile] = useState(null)
-  const [screenshotPreview, setScreenshotPreview] = useState(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [savedReg, setSavedReg]     = useState(null)
-  const [copied, setCopied]         = useState('')
+  const [step, setStep]         = useState(STEP.FORM)
+  const [saving, setSaving]     = useState(false)   // spinner flag
+  const [savedReg, setSavedReg] = useState(null)
+  const [amount, setAmount]     = useState('')
+  const [screenshot, setScreenshot]     = useState(null)
+  const [screenshotPreview, setPreview] = useState(null)
+  const [copied, setCopied]     = useState('')
   const fileRef = useRef(null)
 
   const numericAmount = parseFloat(amount) || 0
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-    watch,
-  } = useForm({ defaultValues: { batch: '2006', familyMembers: '0' } })
-
+  const { register, handleSubmit, formState: { errors }, watch } = useForm({
+    defaultValues: { batch: '2006', familyMembers: '0' },
+  })
   const attendance = watch('attendance')
 
+  // ── Copy helper ────────────────────────────────────────────
   function handleCopy(text, key) {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(key)
@@ -54,11 +49,11 @@ export default function RegistrationSection() {
     })
   }
 
+  // ── File helper ────────────────────────────────────────────
   function handleFileChange(e) {
     const file = e.target.files[0]
     if (!file) return
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-    if (!allowed.includes(file.type)) {
+    if (!['image/jpeg','image/jpg','image/png','image/webp'].includes(file.type)) {
       toast.error('Please upload a JPG, PNG or WebP image.')
       return
     }
@@ -66,34 +61,17 @@ export default function RegistrationSection() {
       toast.error('Screenshot must be under 5 MB.')
       return
     }
-    setScreenshotFile(file)
-    setScreenshotPreview(URL.createObjectURL(file))
+    setScreenshot(file)
+    setPreview(URL.createObjectURL(file))
   }
 
-  // ── Step 1: Validate form → go to contribution choice ──────
-  function onFormContinue(data) {
-    setFormData(data)
-    setStep(STEP.CHOICE)
-  }
-
-  async function saveEverything(withContribution) {
-    setStep(STEP.SAVING)
-    setSubmitting(true)
+  // ── STEP 1: Form submitted → save registration immediately ─
+  async function onFormSubmit(data) {
+    setSaving(true)
     try {
-      const reg = await submitRegistration(formData)
+      const reg = await submitRegistration(data)
       setSavedReg(reg)
-
-      if (withContribution && numericAmount >= 1) {
-        await submitContribution({
-          registrationId: reg.registration_id,
-          alumniName:     reg.full_name,
-          phone:          reg.phone            || null,
-          attendance:     reg.attendance_status || null,
-          amount:         numericAmount,
-        }, screenshotFile)  // pass screenshot file (may be null)
-      }
-
-      setStep(STEP.DONE)
+      setStep(STEP.CHOICE)
     } catch (err) {
       console.error(err)
       toast.error(
@@ -101,55 +79,53 @@ export default function RegistrationSection() {
           ? 'This phone number is already registered.'
           : 'Something went wrong. Please try again.'
       )
-      setStep(withContribution ? STEP.PAY : STEP.CHOICE)
+      // stay on FORM so user can retry
     } finally {
-      setSubmitting(false)
+      setSaving(false)
     }
   }
 
-  // ── Step 2a: User chose NO contribution ────────────────────
-  async function handleNoContribution() {
-    await saveEverything(false)
+  // ── STEP 2a: No contribution → registration already saved → DONE
+  function handleNoContribution() {
+    setStep(STEP.DONE)
   }
 
-  // ── Step 2b: User chose YES → show payment screen ──────────
+  // ── STEP 2b: Yes → show payment screen
   function handleYesContribution() {
     setStep(STEP.PAY)
   }
 
-  // ── Step 3: Submit contribution amount → save everything ───
-  async function handleConfirmContribution(e) {
+  // ── STEP 3: Save contribution → DONE ──────────────────────
+  async function handleContribSubmit(e) {
     e.preventDefault()
     if (numericAmount < 1) {
       toast.error('Please enter a contribution amount.')
       return
     }
-    await saveEverything(true)
+    setSaving(true)
+    try {
+      await submitContribution({
+        registrationId: savedReg.registration_id,
+        alumniName:     savedReg.full_name,
+        phone:          savedReg.phone             || null,
+        attendance:     savedReg.attendance_status || null,
+        amount:         numericAmount,
+      }, screenshot)
+      setStep(STEP.DONE)
+    } catch (err) {
+      console.error(err)
+      toast.error('Could not save contribution. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  // ── SAVING screen ─────────────────────────────────────────
-  if (step === STEP.SAVING) {
-    return (
-      <section id="registration"
-        className="section-pad bg-navy-950 relative overflow-hidden">
-        <div className="absolute inset-0 grain-overlay pointer-events-none" />
-        <div className="max-w-2xl mx-auto relative z-10 flex items-center
-                        justify-center min-h-[300px]">
-          <div className="text-center space-y-4">
-            <Loader2 size={40} className="animate-spin text-gold-400 mx-auto" />
-            <p className="font-serif text-ivory-100 text-xl">Completing registration…</p>
-            <p className="font-sans text-ivory-400/50 text-sm">Please wait</p>
-          </div>
-        </div>
-      </section>
-    )
-  }
-
-  // ── DONE screen ───────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  // DONE screen
+  // ══════════════════════════════════════════════════════════
   if (step === STEP.DONE) {
     return (
-      <section id="registration"
-        className="section-pad bg-navy-950 relative overflow-hidden">
+      <section id="registration" className="section-pad bg-navy-950 relative overflow-hidden">
         <div className="absolute inset-0 grain-overlay pointer-events-none" />
         <div className="max-w-2xl mx-auto relative z-10">
           <motion.div
@@ -178,10 +154,10 @@ export default function RegistrationSection() {
             </p>
             {savedReg?.registration_id && (
               <div className="premium-card inline-block">
-                <p className="font-sans text-ivory-400/55 text-xs tracking-widest
-                              uppercase mb-1">Registration ID</p>
-                <p className="font-sans text-gold-400 font-mono text-sm font-bold
-                              tracking-wider">
+                <p className="font-sans text-ivory-400/55 text-xs tracking-widest uppercase mb-1">
+                  Registration ID
+                </p>
+                <p className="font-sans text-gold-400 font-mono text-sm font-bold tracking-wider">
                   {savedReg.registration_id}
                 </p>
               </div>
@@ -192,11 +168,12 @@ export default function RegistrationSection() {
     )
   }
 
-  // ── CONTRIBUTION QUESTION screen ──────────────────────────
+  // ══════════════════════════════════════════════════════════
+  // CONTRIBUTION CHOICE screen
+  // ══════════════════════════════════════════════════════════
   if (step === STEP.CHOICE) {
     return (
-      <section id="registration"
-        className="section-pad bg-navy-950 relative overflow-hidden">
+      <section id="registration" className="section-pad bg-navy-950 relative overflow-hidden">
         <div className="absolute inset-0 grain-overlay pointer-events-none" />
         <div className="max-w-2xl mx-auto relative z-10">
           <motion.div
@@ -204,13 +181,10 @@ export default function RegistrationSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45 }}
           >
-            <div className="premium-card"
-              style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
+            <div className="premium-card" style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
 
-              <div className="flex items-center gap-3 mb-6 pb-5
-                              border-b border-navy-700/50">
-                <Heart size={18} className="text-gold-400 flex-shrink-0"
-                       fill="currentColor" />
+              <div className="flex items-center gap-3 mb-6 pb-5 border-b border-navy-700/50">
+                <Heart size={18} className="text-gold-400 flex-shrink-0" fill="currentColor" />
                 <h3 className="font-serif text-ivory-100 text-lg font-semibold">
                   Would you like to contribute?
                 </h3>
@@ -239,29 +213,19 @@ export default function RegistrationSection() {
 
                 <button
                   onClick={handleNoContribution}
-                  disabled={submitting}
                   className="flex items-center justify-center gap-2 p-5 border
                              border-navy-600 text-ivory-400/70
                              hover:border-navy-500 hover:text-ivory-300
                              transition-all duration-200
-                             font-sans font-medium text-sm tracking-wide
-                             disabled:opacity-50 disabled:cursor-not-allowed"
+                             font-sans font-medium text-sm tracking-wide"
                 >
-                  {submitting
-                    ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
-                    : 'No, not now'
-                  }
+                  No, not now
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setStep(STEP.FORM)}
-                className="mt-5 text-navy-500 hover:text-ivory-400 transition-colors
-                           text-xs font-sans flex items-center gap-1"
-              >
-                ← Back to registration
-              </button>
+              <p className="font-sans text-ivory-400/35 text-xs mt-5 text-center">
+                Your registration is already saved. This step is optional.
+              </p>
             </div>
           </motion.div>
         </div>
@@ -269,11 +233,12 @@ export default function RegistrationSection() {
     )
   }
 
-  // ── CONTRIBUTION AMOUNT + QR screen ───────────────────────
+  // ══════════════════════════════════════════════════════════
+  // CONTRIBUTION + QR + SCREENSHOT screen
+  // ══════════════════════════════════════════════════════════
   if (step === STEP.PAY) {
     return (
-      <section id="registration"
-        className="section-pad bg-navy-950 relative overflow-hidden">
+      <section id="registration" className="section-pad bg-navy-950 relative overflow-hidden">
         <div className="absolute inset-0 grain-overlay pointer-events-none" />
         <div className="max-w-2xl mx-auto relative z-10">
           <motion.div
@@ -281,12 +246,10 @@ export default function RegistrationSection() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45 }}
           >
-            <form onSubmit={handleConfirmContribution} className="space-y-6">
-              <div className="premium-card"
-                style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
+            <form onSubmit={handleContribSubmit} className="space-y-6">
+              <div className="premium-card" style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
 
-                <div className="flex items-center gap-3 mb-6 pb-5
-                                border-b border-navy-700/50">
+                <div className="flex items-center gap-3 mb-6 pb-5 border-b border-navy-700/50">
                   <Smartphone size={18} className="text-gold-400 flex-shrink-0" />
                   <h3 className="font-serif text-ivory-100 text-lg font-semibold">
                     Your Contribution
@@ -294,7 +257,8 @@ export default function RegistrationSection() {
                 </div>
 
                 <p className="font-sans text-ivory-300/70 text-sm mb-6 leading-relaxed">
-                  Scan the QR code or use the bank details below to make your payment.
+                  Scan the QR code or use the bank details below, then enter the amount
+                  and optionally upload a payment screenshot.
                 </p>
 
                 {/* Payment methods */}
@@ -302,43 +266,31 @@ export default function RegistrationSection() {
 
                   {/* QR */}
                   <div className="text-center">
-                    <p className="font-sans text-ivory-400/50 text-xs
-                                  tracking-[0.2em] uppercase mb-3
-                                  flex items-center justify-center gap-1.5">
-                      <Smartphone size={12} />
-                      Scan with UPI App
+                    <p className="font-sans text-ivory-400/50 text-xs tracking-[0.2em]
+                                  uppercase mb-3 flex items-center justify-center gap-1.5">
+                      <Smartphone size={12} /> Scan with UPI App
                     </p>
-                    <div className="inline-block bg-white p-3 mx-auto"
-                      style={{ lineHeight: 0 }}>
+                    <div className="inline-block bg-white p-3 mx-auto" style={{ lineHeight: 0 }}>
                       <img
                         src={QR_SRC}
                         alt="PhonePe / UPI Payment QR Code"
-                        style={{
-                          display: 'block',
-                          width: '180px',
-                          height: 'auto',
-                          imageRendering: 'crisp-edges',
-                        }}
+                        style={{ display:'block', width:'180px', height:'auto', imageRendering:'crisp-edges' }}
                       />
                     </div>
                     <div className="mt-4 space-y-1">
-                      <p className="font-sans text-ivory-400/45 text-xs
-                                    tracking-widest uppercase">UPI ID</p>
+                      <p className="font-sans text-ivory-400/45 text-xs tracking-widest uppercase">
+                        UPI ID
+                      </p>
                       <div className="flex items-center justify-center gap-2">
-                        <span className="font-mono text-gold-400 font-semibold
-                                         text-sm tracking-wide">
+                        <span className="font-mono text-gold-400 font-semibold text-sm tracking-wide">
                           {PAYMENT.upiId}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(PAYMENT.upiId, 'upi')}
+                        <button type="button" onClick={() => handleCopy(PAYMENT.upiId, 'upi')}
                           className="text-navy-400 hover:text-gold-400 transition-colors"
-                          aria-label="Copy UPI ID"
-                        >
+                          aria-label="Copy UPI ID">
                           {copied === 'upi'
                             ? <CheckCircle2 size={13} className="text-green-400" />
-                            : <Copy size={13} />
-                          }
+                            : <Copy size={13} />}
                         </button>
                       </div>
                     </div>
@@ -346,40 +298,30 @@ export default function RegistrationSection() {
 
                   {/* Bank */}
                   <div>
-                    <p className="font-sans text-ivory-400/50 text-xs
-                                  tracking-[0.2em] uppercase mb-3
-                                  flex items-center gap-1.5">
-                      <Building2 size={12} />
-                      Bank Transfer
+                    <p className="font-sans text-ivory-400/50 text-xs tracking-[0.2em]
+                                  uppercase mb-3 flex items-center gap-1.5">
+                      <Building2 size={12} /> Bank Transfer
                     </p>
                     <div className="space-y-4">
                       {[
                         { label: 'Account Number', value: PAYMENT.accountNumber, key: 'acc'  },
                         { label: 'IFSC Code',       value: PAYMENT.ifscCode,       key: 'ifsc' },
                       ].map(({ label, value, key }) => (
-                        <div key={key}
-                          className="flex items-center justify-between gap-2">
+                        <div key={key} className="flex items-center justify-between gap-2">
                           <div className="flex-1 min-w-0">
-                            <p className="font-sans text-ivory-400/40 text-xs
-                                          tracking-widest uppercase mb-0.5">
+                            <p className="font-sans text-ivory-400/40 text-xs tracking-widest uppercase mb-0.5">
                               {label}
                             </p>
-                            <p className="font-mono text-ivory-100 text-sm
-                                          font-semibold break-all">
+                            <p className="font-mono text-ivory-100 text-sm font-semibold break-all">
                               {value}
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(value, key)}
-                            className="text-navy-500 hover:text-gold-400
-                                       transition-colors flex-shrink-0"
-                            aria-label={`Copy ${label}`}
-                          >
+                          <button type="button" onClick={() => handleCopy(value, key)}
+                            className="text-navy-500 hover:text-gold-400 transition-colors flex-shrink-0"
+                            aria-label={`Copy ${label}`}>
                             {copied === key
                               ? <CheckCircle2 size={13} className="text-green-400" />
-                              : <Copy size={13} />
-                            }
+                              : <Copy size={13} />}
                           </button>
                         </div>
                       ))}
@@ -387,135 +329,102 @@ export default function RegistrationSection() {
                   </div>
                 </div>
 
-                {/* Amount input */}
-                <div className="border-t border-navy-700/40 pt-6">
-                  <label className="form-label">
-                    Contribution Amount (₹) <span className="text-gold-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-4 top-1/2 -translate-y-1/2
-                                     font-serif text-gold-400 text-2xl font-bold
-                                     pointer-events-none select-none">₹</span>
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      placeholder="Enter amount"
-                      value={amount}
-                      onChange={e => setAmount(e.target.value)}
-                      className="form-input pl-10 text-xl font-semibold
-                                 text-gold-300 py-4"
-                      inputMode="numeric"
-                      aria-label="Contribution amount in rupees"
-                      autoFocus
-                    />
-                  </div>
-                  <AnimatePresence>
-                    {numericAmount > 0 && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 6 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                        className="mt-3 p-3 bg-gold-500/8 border
-                                   border-gold-500/20 text-center"
-                      >
-                        <span className="font-sans text-ivory-400/55 text-xs
-                                         tracking-widest uppercase mr-2">
-                          Your contribution:
-                        </span>
-                        <span className="font-serif text-gold-400 text-xl font-bold">
-                          {formatCurrency(numericAmount)}
-                        </span>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {/* Screenshot upload — optional */}
-                <div className="mt-5">
-                  <label className="form-label">
-                    Payment Screenshot
-                    <span className="text-navy-500 font-normal ml-1 normal-case
-                                     tracking-normal text-xs">(optional)</span>
-                  </label>
-                  <p className="font-sans text-ivory-400/45 text-xs mb-3 leading-relaxed">
-                    After making the payment, you may upload a screenshot for your records.
-                    JPG, PNG or WebP · Max 5 MB.
-                  </p>
-
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="image/jpeg,image/jpg,image/png,image/webp"
-                    className="hidden"
-                    onChange={handleFileChange}
-                  />
-
-                  {screenshotPreview ? (
-                    <div className="border border-gold-500/30 bg-gold-500/5 p-4 space-y-3">
-                      <img
-                        src={screenshotPreview}
-                        alt="Payment screenshot preview"
-                        className="max-h-44 object-contain mx-auto rounded"
+                {/* Amount */}
+                <div className="border-t border-navy-700/40 pt-6 space-y-5">
+                  <div>
+                    <label className="form-label">
+                      Contribution Amount (₹) <span className="text-gold-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 font-serif
+                                       text-gold-400 text-2xl font-bold pointer-events-none select-none">
+                        ₹
+                      </span>
+                      <input
+                        type="number" min="1" step="1" placeholder="Enter amount"
+                        value={amount} onChange={e => setAmount(e.target.value)}
+                        className="form-input pl-10 text-xl font-semibold text-gold-300 py-4"
+                        inputMode="numeric" autoFocus
                       />
-                      <div className="flex items-center justify-between">
-                        <p className="font-sans text-gold-400 text-xs truncate max-w-[200px]">
-                          {screenshotFile.name}
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => { setScreenshotFile(null); setScreenshotPreview(null) }}
-                          className="text-navy-400 hover:text-red-400 transition-colors
-                                     text-xs inline-flex items-center gap-1 flex-shrink-0"
-                        >
-                          <X size={12} /> Remove
-                        </button>
-                      </div>
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => fileRef.current?.click()}
-                      className="w-full border-2 border-dashed border-navy-700
-                                 hover:border-navy-600 p-5 text-center
-                                 transition-colors duration-200 space-y-2"
-                    >
-                      <Upload size={22} className="text-navy-500 mx-auto" />
-                      <p className="font-sans text-ivory-400/55 text-sm">
-                        Tap to upload payment screenshot
-                      </p>
-                    </button>
-                  )}
-                </div>
+                    <AnimatePresence>
+                      {numericAmount > 0 && (
+                        <motion.div
+                          initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0 }}
+                          className="mt-3 p-3 bg-gold-500/8 border border-gold-500/20 text-center"
+                        >
+                          <span className="font-sans text-ivory-400/55 text-xs tracking-widest uppercase mr-2">
+                            Your contribution:
+                          </span>
+                          <span className="font-serif text-gold-400 text-xl font-bold">
+                            {formatCurrency(numericAmount)}
+                          </span>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
 
-                <p className="font-sans text-ivory-400/30 text-xs mt-4 leading-relaxed">
-                  Make the payment using the QR or bank details above, then click
-                  Complete Registration.
-                </p>
+                  {/* Screenshot — optional */}
+                  <div>
+                    <label className="form-label">
+                      Payment Screenshot
+                      <span className="text-navy-500 font-normal ml-1 normal-case tracking-normal text-xs">
+                        (optional)
+                      </span>
+                    </label>
+                    <p className="font-sans text-ivory-400/45 text-xs mb-3 leading-relaxed">
+                      Upload a screenshot after making the payment. JPG, PNG or WebP · Max 5 MB.
+                    </p>
+                    <input ref={fileRef} type="file"
+                      accept="image/jpeg,image/jpg,image/png,image/webp"
+                      className="hidden" onChange={handleFileChange} />
+
+                    {screenshotPreview ? (
+                      <div className="border border-gold-500/30 bg-gold-500/5 p-4 space-y-3">
+                        <img src={screenshotPreview} alt="Payment screenshot preview"
+                          className="max-h-44 object-contain mx-auto rounded" />
+                        <div className="flex items-center justify-between">
+                          <p className="font-sans text-gold-400 text-xs truncate max-w-[200px]">
+                            {screenshot.name}
+                          </p>
+                          <button type="button"
+                            onClick={() => { setScreenshot(null); setPreview(null) }}
+                            className="text-navy-400 hover:text-red-400 transition-colors
+                                       text-xs inline-flex items-center gap-1 flex-shrink-0">
+                            <X size={12} /> Remove
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => fileRef.current?.click()}
+                        className="w-full border-2 border-dashed border-navy-700
+                                   hover:border-navy-600 p-5 text-center
+                                   transition-colors duration-200 space-y-2">
+                        <Upload size={22} className="text-navy-500 mx-auto" />
+                        <p className="font-sans text-ivory-400/55 text-sm">
+                          Tap to upload payment screenshot
+                        </p>
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {/* Buttons */}
               <div className="flex flex-col sm:flex-row gap-3">
-                <button
-                  type="submit"
-                  disabled={submitting || numericAmount < 1}
+                <button type="submit"
+                  disabled={saving || numericAmount < 1}
                   className="btn-primary flex-1 py-5 text-sm
-                             disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {submitting
-                    ? <><Loader2 size={16} className="animate-spin" /> Completing…</>
-                    : <>Complete Registration →</>
-                  }
+                             disabled:opacity-50 disabled:cursor-not-allowed">
+                  {saving
+                    ? <><Loader2 size={16} className="animate-spin" /> Saving…</>
+                    : <>Complete Registration →</>}
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setStep(STEP.CHOICE)}
-                  className="btn-outline py-4 text-xs px-6"
-                >
+                <button type="button" onClick={() => setStep(STEP.CHOICE)}
+                  className="btn-outline py-4 text-xs px-6">
                   ← Back
                 </button>
               </div>
-
               {numericAmount < 1 && (
                 <p className="font-sans text-ivory-400/35 text-xs text-center">
                   Enter a contribution amount to continue.
@@ -528,15 +437,14 @@ export default function RegistrationSection() {
     )
   }
 
-  // ── REGISTRATION FORM ─────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  // REGISTRATION FORM
+  // ══════════════════════════════════════════════════════════
   return (
-    <section id="registration"
-      className="section-pad relative overflow-hidden bg-navy-950">
+    <section id="registration" className="section-pad relative overflow-hidden bg-navy-950">
       <div className="absolute inset-0 grain-overlay pointer-events-none" />
-      <div className="absolute top-0 right-0 w-72 h-72 rounded-full
-                      bg-gold-500/4 blur-3xl pointer-events-none" />
-      <div className="absolute bottom-0 left-0 w-60 h-60 rounded-full
-                      bg-burgundy-700/6 blur-3xl pointer-events-none" />
+      <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-gold-500/4 blur-3xl pointer-events-none" />
+      <div className="absolute bottom-0 left-0 w-60 h-60 rounded-full bg-burgundy-700/6 blur-3xl pointer-events-none" />
 
       <div className="max-w-2xl mx-auto relative z-10">
 
@@ -547,27 +455,23 @@ export default function RegistrationSection() {
             <span className="text-gold-shimmer">Reconnect. Relive.</span>
           </h2>
           <GoldDivider />
-          <p className="font-sans text-ivory-300/70 text-base leading-relaxed
-                        mt-6 max-w-lg mx-auto">
+          <p className="font-sans text-ivory-300/70 text-base leading-relaxed mt-6 max-w-lg mx-auto">
             Register for the{' '}
             <strong className="text-gold-400">{EVENT.title}</strong>.
           </p>
         </ScrollReveal>
 
-        <form onSubmit={handleSubmit(onFormContinue)}
-          noValidate className="space-y-8">
+        <form onSubmit={handleSubmit(onFormSubmit)} noValidate className="space-y-8">
 
           {/* Personal Details */}
           <ScrollReveal delay={50}>
             <FormSection title="Personal Details" icon="👤">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-
                 <div className="md:col-span-2">
                   <label className="form-label">Full Name <Req /></label>
                   <input
                     className={`form-input ${errors.fullName ? 'border-red-500' : ''}`}
-                    placeholder="Your full name"
-                    autoComplete="name"
+                    placeholder="Your full name" autoComplete="name"
                     {...register('fullName', {
                       required: 'Full name is required',
                       minLength: { value: 2, message: 'Name is too short' },
@@ -575,41 +479,27 @@ export default function RegistrationSection() {
                   />
                   {errors.fullName && <Err msg={errors.fullName.message} />}
                 </div>
-
                 <div className="md:col-span-2">
                   <label className="form-label">Phone Number <Req /></label>
                   <input
                     className={`form-input ${errors.phone ? 'border-red-500' : ''}`}
-                    placeholder="+91 98765 43210"
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
+                    placeholder="+91 98765 43210" type="tel" inputMode="tel" autoComplete="tel"
                     {...register('phone', {
                       required: 'Phone number is required',
-                      pattern: {
-                        value: /^[+]?[0-9\s\-()]{8,15}$/,
-                        message: 'Enter a valid phone number',
-                      },
+                      pattern: { value: /^[+]?[0-9\s\-()]{8,15}$/, message: 'Enter a valid phone number' },
                     })}
                   />
                   {errors.phone && <Err msg={errors.phone.message} />}
                 </div>
-
                 <div>
                   <label className="form-label">Batch</label>
-                  <input
-                    className="form-input bg-navy-800/50 cursor-not-allowed opacity-70"
-                    readOnly value="2006"
-                    {...register('batch')}
-                  />
+                  <input className="form-input bg-navy-800/50 cursor-not-allowed opacity-70"
+                    readOnly value="2006" {...register('batch')} />
                 </div>
-
                 <div>
                   <label className="form-label">Gender</label>
-                  <SelectField
-                    {...register('gender')}
-                    options={['Prefer not to say', 'Male', 'Female']}
-                  />
+                  <SelectField {...register('gender')}
+                    options={['Prefer not to say', 'Male', 'Female']} />
                 </div>
               </div>
             </FormSection>
@@ -628,15 +518,9 @@ export default function RegistrationSection() {
                     { value: 'Yes', label: 'Yes, I will attend ❤️', sub: 'October 10, 2026'      },
                     { value: 'No',  label: 'No, I cannot attend',    sub: 'I will not be present' },
                   ].map(opt => (
-                    <AttendanceCard
-                      key={opt.value}
-                      value={opt.value}
-                      label={opt.label}
-                      sub={opt.sub}
-                      checked={attendance === opt.value}
-                      register={register('attendance', {
-                        required: 'Please select attendance',
-                      })}
+                    <AttendanceCard key={opt.value} value={opt.value} label={opt.label}
+                      sub={opt.sub} checked={attendance === opt.value}
+                      register={register('attendance', { required: 'Please select attendance' })}
                     />
                   ))}
                 </div>
@@ -648,17 +532,14 @@ export default function RegistrationSection() {
           <AnimatePresence>
             {attendance === 'Yes' && (
               <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.35 }}
+                initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.35 }}
                 className="overflow-hidden space-y-8"
               >
                 <FormSection title="Family" icon="👨‍👩‍👧">
                   <div>
                     <label className="form-label">Family members accompanying you</label>
-                    <input
-                      className="form-input w-28 text-center text-lg font-semibold"
+                    <input className="form-input w-28 text-center text-lg font-semibold"
                       type="number" min="0" max="20" inputMode="numeric"
                       {...register('familyMembers', {
                         min: { value: 0, message: 'Cannot be negative' },
@@ -694,17 +575,13 @@ export default function RegistrationSection() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div>
                       <label className="form-label">Food Preference</label>
-                      <SelectField
-                        {...register('foodPreference')}
-                        options={['Select preference', 'Vegetarian', 'Non-Vegetarian']}
-                      />
+                      <SelectField {...register('foodPreference')}
+                        options={['Select preference', 'Vegetarian', 'Non-Vegetarian']} />
                     </div>
                     <div>
                       <label className="form-label">Accommodation Required?</label>
-                      <SelectField
-                        {...register('accommodation')}
-                        options={['Select option', 'Yes', 'No']}
-                      />
+                      <SelectField {...register('accommodation')}
+                        options={['Select option', 'Yes', 'No']} />
                     </div>
                   </div>
                 </FormSection>
@@ -712,19 +589,19 @@ export default function RegistrationSection() {
             )}
           </AnimatePresence>
 
-          {/* Continue button */}
+          {/* Submit */}
           <AnimatePresence>
             {attendance && (
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                 className="text-center pt-2"
               >
-                <button
-                  type="submit"
-                  className="btn-primary min-w-[220px] py-5 text-sm"
-                >
-                  Continue →
+                <button type="submit" disabled={saving}
+                  className="btn-primary min-w-[220px] py-5 text-sm
+                             disabled:opacity-50 disabled:cursor-not-allowed">
+                  {saving
+                    ? <><Loader2 size={16} className="animate-spin" /> Saving…</>
+                    : <>Continue →</>}
                 </button>
                 <p className="font-sans text-ivory-400/30 text-xs mt-3">
                   Your information is stored securely and will not be shared.
@@ -759,38 +636,27 @@ function FormSection({ title, icon, children }) {
 const SelectField = React.forwardRef(function SelectField({ options, ...props }, ref) {
   return (
     <div className="relative">
-      <select ref={ref}
-        className="form-input appearance-none pr-9 cursor-pointer" {...props}>
+      <select ref={ref} className="form-input appearance-none pr-9 cursor-pointer" {...props}>
         {options.map(opt => (
           <option key={opt} value={opt.startsWith('Select') ? '' : opt}
-            disabled={opt.startsWith('Select')}>
-            {opt}
-          </option>
+            disabled={opt.startsWith('Select')}>{opt}</option>
         ))}
       </select>
-      <ChevronDown size={15}
-        className="absolute right-3 top-1/2 -translate-y-1/2
-                   text-navy-400 pointer-events-none" />
+      <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2
+                                        text-navy-400 pointer-events-none" />
     </div>
   )
 })
 
 function AttendanceCard({ value, label, sub, checked, register }) {
   return (
-    <label
-      className={`flex items-start gap-3 p-4 border cursor-pointer select-none
-                  transition-all duration-200
-                  ${checked
-                    ? 'border-gold-500 bg-gold-500/10'
-                    : 'border-navy-700 hover:border-navy-500'}`}
-    >
-      <input type="radio" value={value}
-        className="mt-1 accent-gold-500 flex-shrink-0" {...register} />
+    <label className={`flex items-start gap-3 p-4 border cursor-pointer select-none
+                       transition-all duration-200
+                       ${checked ? 'border-gold-500 bg-gold-500/10' : 'border-navy-700 hover:border-navy-500'}`}>
+      <input type="radio" value={value} className="mt-1 accent-gold-500 flex-shrink-0" {...register} />
       <div>
         <p className={`font-sans text-sm font-semibold leading-snug
-                       ${checked ? 'text-gold-300' : 'text-ivory-200'}`}>
-          {label}
-        </p>
+                       ${checked ? 'text-gold-300' : 'text-ivory-200'}`}>{label}</p>
         <p className="font-sans text-xs text-ivory-400/50 mt-0.5">{sub}</p>
       </div>
     </label>
