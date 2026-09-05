@@ -1,8 +1,19 @@
-import { supabase, generateRegistrationId } from './supabase'
+import { supabase, generateRegistrationId, isSupabaseConfigured } from './supabase'
 
 // ── REGISTRATIONS ────────────────────────────────────────────
 
 export async function submitRegistration(formData) {
+  if (!isSupabaseConfigured) {
+    console.warn('Supabase not configured — registration not saved')
+    // Return a mock result so the UI flow still works for demo/testing
+    return {
+      registration_id: generateRegistrationId(),
+      full_name: formData.fullName,
+      phone: formData.phone,
+      attendance_status: formData.attendance,
+    }
+  }
+
   const registrationId = generateRegistrationId()
 
   // Note: email, currentCity, specialMessage removed from form per requirements.
@@ -54,6 +65,11 @@ async function triggerRegistrationEmail(registration) {
 // ── CONTRIBUTIONS ────────────────────────────────────────────
 
 export async function submitContribution(contributionData) {
+  if (!isSupabaseConfigured) {
+    console.warn('Supabase not configured — contribution not saved')
+    return { id: 'demo', ...contributionData }
+  }
+
   // No transaction ID, no screenshot — organizer reconciles via bank/UPI app.
   const payload = {
     registration_id:     contributionData.registrationId,
