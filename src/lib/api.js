@@ -129,11 +129,10 @@ async function uploadScreenshot(registrationId, file) {
       return null
     }
 
-    const { data } = supabase.storage
-      .from('payment-screenshots')
-      .getPublicUrl(fileName)
-
-    return data?.publicUrl || null
+    // Bucket is PRIVATE — store the storage path only.
+    // The Edge Function uses the service role key to generate
+    // a signed URL server-side when sending the admin email.
+    return fileName
   } catch (err) {
     console.error('Screenshot upload failed:', err)
     return null
