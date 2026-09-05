@@ -1,10 +1,10 @@
-import React, { useState, useRef } from 'react'
+import React, { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 import {
   Loader2, CheckCircle2, ChevronDown,
-  Copy, Smartphone, Building2, Heart, Upload, X,
+  Copy, Smartphone, Building2, Heart,
 } from 'lucide-react'
 import { submitRegistration, submitContribution } from '../lib/api'
 import { EVENT, PAYMENT } from '../config'
@@ -15,26 +15,23 @@ import GoldDivider from '../components/GoldDivider'
 // QR: BASE_URL = '/' locally, '/sarvagnya-2k26/' on GitHub Pages
 const QR_SRC = `${import.meta.env.BASE_URL}upi-qr.jpeg`
 
-// Steps: 'form' → 'contribution-choice' → 'contribute' | 'done'
+// ── Flow steps ────────────────────────────────────────────────
+// FORM → CHOICE → (PAY | SAVING) → DONE
 const STEP = {
-  FORM:    'form',
-  CHOICE:  'contribution-choice',
-  PAY:     'contribute',
-  DONE:    'done',
+  FORM:   'form',      // registration fields
+  CHOICE: 'choice',   // "would you like to contribute?"
+  PAY:    'pay',      // contribution amount + QR (only if YES)
+  SAVING: 'saving',   // saving to DB + sending emails
+  DONE:   'done',     // "Registration Successful"
 }
 
 export default function RegistrationSection() {
   const [step, setStep]           = useState(STEP.FORM)
+  const [formData, setFormData]   = useState(null)   // holds raw form values before save
+  const [amount, setAmount]       = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [savedReg, setSavedReg]   = useState(null)
-
-  // Contribution state
-  const [amount, setAmount]               = useState('')
-  const [screenshotFile, setScreenshot]   = useState(null)
-  const [screenshotPreview, setPreview]   = useState(null)
-  const [uploadingContrib, setUploading]  = useState(false)
-  const [copied, setCopied]               = useState('')
-  const fileRef = useRef(null)
+  const [copied, setCopied]       = useState('')
 
   const numericAmount = parseFloat(amount) || 0
 
@@ -43,12 +40,10 @@ export default function RegistrationSection() {
     handleSubmit,
     formState: { errors },
     watch,
-    reset,
   } = useForm({ defaultValues: { batch: '2006', familyMembers: '0' } })
 
   const attendance = watch('attendance')
 
-  // ── Helpers ────────────────────────────────────────────────
   function handleCopy(text, key) {
     navigator.clipboard.writeText(text).then(() => {
       setCopied(key)
@@ -56,30 +51,35 @@ export default function RegistrationSection() {
     })
   }
 
-  function handleFileChange(e) {
-    const file = e.target.files[0]
-    if (!file) return
-    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp']
-    if (!allowed.includes(file.type)) {
-      toast.error('Please upload a JPG, PNG or WebP image.')
-      return
-    }
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error('Screenshot must be under 8 MB.')
-      return
-    }
-    setScreenshot(file)
-    setPreview(URL.createObjectURL(file))
+  // ── Step 1: Validate form → go to contribution choice ──────
+  function onFormContinue(data) {
+    setFormData(data)
+    setStep(STEP.CHOICE)
   }
 
-  // ── Step 1: Submit registration form ───────────────────────
-  async function onSubmitRegistration(data) {
+  // ── Shared save function ───────────────────────────────────
+  async function saveEverything(withContribution) {
+    setStep(STEP.SAVING)
     setSubmitting(true)
     try {
-      const result = await submitRegistration(data)
-      setSavedReg(result)
-      reset()
-      setStep(STEP.CHOICE)
+      // 1. Save registration
+      const reg = await submitRegistration(formData)
+      setSavedReg(reg)
+
+      // 2. Save contribution (or NO record if not contributing)
+      if (withContribution && numericAmount >= 1) {
+        await submitContribution({
+          registrationId: reg.registration_id,
+          alumniName:     reg.full_name,
+          phone:          reg.phone            || null,
+          attendance:     reg.attendance_status || null,
+          amount:         numericAmount,
+          status:         'SUBMITTED',
+        }, null)   // no screenshot in this flow
+      }
+      // If not contributing, no contribution row is created
+
+      setStep(STEP.DONE)
     } catch (err) {
       console.error(err)
       toast.error(
@@ -87,70 +87,52 @@ export default function RegistrationSection() {
           ? 'This phone number is already registered.'
           : 'Something went wrong. Please try again.'
       )
+      // Go back to appropriate step on error
+      setStep(withContribution ? STEP.PAY : STEP.CHOICE)
     } finally {
       setSubmitting(false)
     }
   }
 
-  // ── Step 2a: Alumni chose "Not interested" ─────────────────
-  async function handleNotInterested() {
-    setSubmitting(true)
-    try {
-      await submitContribution({
-        registrationId: savedReg.registration_id,
-        alumniName:     savedReg.full_name,
-        phone:          savedReg.phone || null,
-        attendance:     savedReg.attendance_status || null,
-        amount:         0,
-        status:         'NOT_INTERESTED',
-      }, null)
-      setStep(STEP.DONE)
-    } catch (err) {
-      console.error(err)
-      // Don't block completion if contribution record fails
-      setStep(STEP.DONE)
-    } finally {
-      setSubmitting(false)
-    }
+  // ── Step 2a: User chose NO contribution ────────────────────
+  async function handleNoContribution() {
+    await saveEverything(false)
   }
 
-  // ── Step 2b: Alumni chose "I would like to contribute" ─────
-  function handleChooseContribute() {
+  // ── Step 2b: User chose YES → show payment screen ──────────
+  function handleYesContribution() {
     setStep(STEP.PAY)
   }
 
-  // ── Step 3: Submit contribution + screenshot ───────────────
-  async function handleSubmitContribution(e) {
+  // ── Step 3: Submit contribution amount → save everything ───
+  async function handleConfirmContribution(e) {
     e.preventDefault()
     if (numericAmount < 1) {
       toast.error('Please enter a contribution amount.')
       return
     }
-    if (!screenshotFile) {
-      toast.error('Please upload a payment screenshot to confirm your contribution.')
-      return
-    }
-    setUploading(true)
-    try {
-      await submitContribution({
-        registrationId: savedReg.registration_id,
-        alumniName:     savedReg.full_name,
-        phone:          savedReg.phone || null,
-        attendance:     savedReg.attendance_status || null,
-        amount:         numericAmount,
-        status:         'SUBMITTED',
-      }, screenshotFile)
-      setStep(STEP.DONE)
-      toast.success('Contribution received! Thank you ❤️')
-    } catch (err) {
-      console.error(err)
-      toast.error('Could not save contribution. Please try again.')
-    } finally {
-      setUploading(false)
-    }
+    await saveEverything(true)
   }
 
-  // ── DONE screen ────────────────────────────────────────────
+  // ── SAVING screen ─────────────────────────────────────────
+  if (step === STEP.SAVING) {
+    return (
+      <section id="registration"
+        className="section-pad bg-navy-950 relative overflow-hidden">
+        <div className="absolute inset-0 grain-overlay pointer-events-none" />
+        <div className="max-w-2xl mx-auto relative z-10 flex items-center
+                        justify-center min-h-[300px]">
+          <div className="text-center space-y-4">
+            <Loader2 size={40} className="animate-spin text-gold-400 mx-auto" />
+            <p className="font-serif text-ivory-100 text-xl">Completing registration…</p>
+            <p className="font-sans text-ivory-400/50 text-sm">Please wait</p>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
+  // ── DONE screen ───────────────────────────────────────────
   if (step === STEP.DONE) {
     return (
       <section id="registration"
@@ -173,16 +155,16 @@ export default function RegistrationSection() {
             </motion.div>
             <p className="font-script text-gold-400 text-2xl mb-2">Thank You</p>
             <h3 className="font-serif text-ivory-100 text-3xl font-bold mb-1">
-              2006 Batch ❤️
+              Registration Successful ❤️
             </h3>
             <GoldDivider />
             <p className="font-sans text-ivory-300/80 text-base leading-relaxed mt-4 mb-5">
               {savedReg?.attendance_status === 'Yes'
-                ? 'Your registration is complete. We look forward to welcoming you on October 10!'
-                : 'Your registration is complete. Thank you for being with us.'}
+                ? 'We look forward to welcoming you on October 10, 2026!'
+                : 'Thank you for being with us, 2006 Batch.'}
             </p>
             {savedReg?.registration_id && (
-              <div className="premium-card inline-block mb-4">
+              <div className="premium-card inline-block">
                 <p className="font-sans text-ivory-400/55 text-xs tracking-widest
                               uppercase mb-1">Registration ID</p>
                 <p className="font-sans text-gold-400 font-mono text-sm font-bold
@@ -197,7 +179,7 @@ export default function RegistrationSection() {
     )
   }
 
-  // ── CONTRIBUTION CHOICE screen ─────────────────────────────
+  // ── CONTRIBUTION QUESTION screen ──────────────────────────
   if (step === STEP.CHOICE) {
     return (
       <section id="registration"
@@ -207,60 +189,43 @@ export default function RegistrationSection() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.45 }}
           >
-            {/* Registration confirmed banner */}
-            <div className="premium-card text-center py-8 px-6 mb-6">
-              <CheckCircle2 size={36} className="text-gold-400 mx-auto mb-3" />
-              <p className="font-serif text-ivory-100 text-xl font-bold mb-1">
-                Registration Confirmed ✓
-              </p>
-              <p className="font-sans text-ivory-400/60 text-xs font-mono tracking-wider">
-                {savedReg?.registration_id}
-              </p>
-            </div>
-
-            {/* Contribution choice */}
             <div className="premium-card"
               style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
-              <div className="flex items-center gap-3 mb-5 pb-5 border-b border-navy-700/50">
+
+              <div className="flex items-center gap-3 mb-6 pb-5
+                              border-b border-navy-700/50">
                 <Heart size={18} className="text-gold-400 flex-shrink-0"
                        fill="currentColor" />
                 <h3 className="font-serif text-ivory-100 text-lg font-semibold">
-                  Support the Celebrations
+                  Would you like to contribute?
                 </h3>
               </div>
 
-              {savedReg?.attendance_status === 'No' ? (
-                <div className="mb-5 px-4 py-3 bg-gold-500/6 border border-gold-500/20">
-                  <p className="font-serif text-ivory-200 text-sm leading-relaxed
-                                italic text-center">
-                    "Although you cannot join us in person, your contribution can
-                    still become a part of this celebration."
-                  </p>
-                </div>
-              ) : (
-                <p className="font-sans text-ivory-300/75 text-sm leading-relaxed mb-5">
-                  Every contribution helps us make{' '}
-                  <strong className="text-gold-400">Sarvagnya 2K26</strong> and the
-                  2006 Batch Alumni Meet truly memorable for students and alumni alike.
-                </p>
-              )}
+              <p className="font-sans text-ivory-300/75 text-sm leading-relaxed mb-2">
+                Would you like to contribute to the{' '}
+                <strong className="text-gold-400">Sarvagnya 2K26</strong> celebrations?
+              </p>
+              <p className="font-sans text-ivory-300/55 text-sm leading-relaxed mb-7">
+                Every contribution helps us make the College Fest and 2006 Batch Alumni
+                Meet truly memorable. Contribution is completely optional.
+              </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button
-                  onClick={handleChooseContribute}
+                  onClick={handleYesContribution}
                   className="flex items-center justify-center gap-2 p-5 border-2
                              border-gold-500 bg-gold-500/10 text-gold-300
                              hover:bg-gold-500/20 transition-all duration-200
                              font-sans font-semibold text-sm tracking-wide"
                 >
                   <Heart size={16} fill="currentColor" />
-                  I would like to contribute
+                  Yes, I would like to contribute
                 </button>
 
                 <button
-                  onClick={handleNotInterested}
+                  onClick={handleNoContribution}
                   disabled={submitting}
                   className="flex items-center justify-center gap-2 p-5 border
                              border-navy-600 text-ivory-400/70
@@ -270,11 +235,20 @@ export default function RegistrationSection() {
                              disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting
-                    ? <><Loader2 size={14} className="animate-spin" /> Processing…</>
-                    : 'Not interested in contributing'
+                    ? <><Loader2 size={14} className="animate-spin" /> Saving…</>
+                    : 'No, not now'
                   }
                 </button>
               </div>
+
+              <button
+                type="button"
+                onClick={() => setStep(STEP.FORM)}
+                className="mt-5 text-navy-500 hover:text-ivory-400 transition-colors
+                           text-xs font-sans flex items-center gap-1"
+              >
+                ← Back to registration
+              </button>
             </div>
           </motion.div>
         </div>
@@ -282,7 +256,7 @@ export default function RegistrationSection() {
     )
   }
 
-  // ── CONTRIBUTION + SCREENSHOT screen ──────────────────────
+  // ── CONTRIBUTION AMOUNT + QR screen ───────────────────────
   if (step === STEP.PAY) {
     return (
       <section id="registration"
@@ -292,27 +266,26 @@ export default function RegistrationSection() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: 0.45 }}
           >
-            <form onSubmit={handleSubmitContribution} className="space-y-6">
-
-              {/* Payment methods */}
+            <form onSubmit={handleConfirmContribution} className="space-y-6">
               <div className="premium-card"
                 style={{ borderColor: 'rgba(196,154,56,0.3)' }}>
+
                 <div className="flex items-center gap-3 mb-6 pb-5
                                 border-b border-navy-700/50">
                   <Smartphone size={18} className="text-gold-400 flex-shrink-0" />
                   <h3 className="font-serif text-ivory-100 text-lg font-semibold">
-                    Make Your Contribution
+                    Your Contribution
                   </h3>
                 </div>
 
                 <p className="font-sans text-ivory-300/70 text-sm mb-6 leading-relaxed">
-                  Scan the QR code or use the bank details below to complete your
-                  payment. Then upload a screenshot to confirm.
+                  Scan the QR code or use the bank details below to make your payment.
                 </p>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-6">
+                {/* Payment methods */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
 
                   {/* QR */}
                   <div className="text-center">
@@ -402,124 +375,65 @@ export default function RegistrationSection() {
                 </div>
 
                 {/* Amount input */}
-                <div className="border-t border-navy-700/40 pt-6 space-y-5">
-                  <div>
-                    <label className="form-label">
-                      Contribution Amount (₹) <span className="text-gold-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2
-                                       font-serif text-gold-400 text-2xl font-bold
-                                       pointer-events-none select-none">₹</span>
-                      <input
-                        type="number"
-                        min="1"
-                        step="1"
-                        placeholder="Enter amount"
-                        value={amount}
-                        onChange={e => setAmount(e.target.value)}
-                        className="form-input pl-10 text-xl font-semibold
-                                   text-gold-300 py-4"
-                        inputMode="numeric"
-                        aria-label="Contribution amount in rupees"
-                      />
-                    </div>
-                    <AnimatePresence>
-                      {numericAmount > 0 && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 6 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0 }}
-                          className="mt-3 p-3 bg-gold-500/8 border
-                                     border-gold-500/20 text-center"
-                        >
-                          <span className="font-sans text-ivory-400/55 text-xs
-                                           tracking-widest uppercase mr-2">
-                            Your contribution:
-                          </span>
-                          <span className="font-serif text-gold-400 text-xl font-bold">
-                            {formatCurrency(numericAmount)}
-                          </span>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                <div className="border-t border-navy-700/40 pt-6">
+                  <label className="form-label">
+                    Contribution Amount (₹) <span className="text-gold-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2
+                                     font-serif text-gold-400 text-2xl font-bold
+                                     pointer-events-none select-none">₹</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Enter amount"
+                      value={amount}
+                      onChange={e => setAmount(e.target.value)}
+                      className="form-input pl-10 text-xl font-semibold
+                                 text-gold-300 py-4"
+                      inputMode="numeric"
+                      aria-label="Contribution amount in rupees"
+                      autoFocus
+                    />
                   </div>
-
-                  {/* Screenshot upload */}
-                  <div>
-                    <label className="form-label">
-                      Payment Screenshot <span className="text-gold-500">*</span>
-                    </label>
-                    <p className="font-sans text-ivory-400/45 text-xs mb-3">
-                      After making the payment, upload a screenshot from your UPI app
-                      to confirm your contribution.
-                    </p>
-
-                    <div
-                      onClick={() => fileRef.current?.click()}
-                      className={`border-2 border-dashed p-5 text-center cursor-pointer
-                                  transition-all duration-200 rounded-sm
-                                  ${screenshotFile
-                                    ? 'border-gold-500/50 bg-gold-500/5'
-                                    : 'border-navy-700 hover:border-navy-600'}`}
-                    >
-                      <input
-                        ref={fileRef}
-                        type="file"
-                        accept="image/jpeg,image/jpg,image/png,image/webp"
-                        className="hidden"
-                        onChange={handleFileChange}
-                      />
-                      {screenshotPreview ? (
-                        <div className="space-y-2">
-                          <img
-                            src={screenshotPreview}
-                            alt="Payment screenshot preview"
-                            className="max-h-40 object-contain mx-auto rounded"
-                          />
-                          <p className="font-sans text-gold-400 text-xs">
-                            {screenshotFile.name}
-                          </p>
-                          <button
-                            type="button"
-                            onClick={e => {
-                              e.stopPropagation()
-                              setScreenshot(null)
-                              setPreview(null)
-                            }}
-                            className="text-navy-400 hover:text-red-400 transition-colors
-                                       text-xs inline-flex items-center gap-1"
-                          >
-                            <X size={12} /> Remove
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          <Upload size={24} className="text-navy-500 mx-auto" />
-                          <p className="font-sans text-ivory-400/60 text-sm">
-                            Tap to upload payment screenshot
-                          </p>
-                          <p className="font-sans text-navy-500 text-xs">
-                            JPG, PNG or WebP · Max 8 MB
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  <AnimatePresence>
+                    {numericAmount > 0 && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        className="mt-3 p-3 bg-gold-500/8 border
+                                   border-gold-500/20 text-center"
+                      >
+                        <span className="font-sans text-ivory-400/55 text-xs
+                                         tracking-widest uppercase mr-2">
+                          Your contribution:
+                        </span>
+                        <span className="font-serif text-gold-400 text-xl font-bold">
+                          {formatCurrency(numericAmount)}
+                        </span>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                  <p className="font-sans text-ivory-400/35 text-xs mt-3 leading-relaxed">
+                    Please make the payment using the QR or bank details above,
+                    then click Complete Registration.
+                  </p>
                 </div>
               </div>
 
-              {/* Submit buttons */}
+              {/* Buttons */}
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="submit"
-                  disabled={uploadingContrib || numericAmount < 1 || !screenshotFile}
-                  className="btn-primary flex-1 py-4 text-sm
+                  disabled={submitting || numericAmount < 1}
+                  className="btn-primary flex-1 py-5 text-sm
                              disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  {uploadingContrib
-                    ? <><Loader2 size={16} className="animate-spin" /> Submitting…</>
-                    : <><Heart size={15} /> Confirm Contribution</>
+                  {submitting
+                    ? <><Loader2 size={16} className="animate-spin" /> Completing…</>
+                    : <>Complete Registration →</>
                   }
                 </button>
                 <button
@@ -531,14 +445,11 @@ export default function RegistrationSection() {
                 </button>
               </div>
 
-              {(!screenshotFile || numericAmount < 1) && (
+              {numericAmount < 1 && (
                 <p className="font-sans text-ivory-400/35 text-xs text-center">
-                  {numericAmount < 1
-                    ? 'Enter contribution amount'
-                    : 'Upload payment screenshot to continue'}
+                  Enter a contribution amount to continue.
                 </p>
               )}
-
             </form>
           </motion.div>
         </div>
@@ -572,7 +483,7 @@ export default function RegistrationSection() {
           </p>
         </ScrollReveal>
 
-        <form onSubmit={handleSubmit(onSubmitRegistration)}
+        <form onSubmit={handleSubmit(onFormContinue)}
           noValidate className="space-y-8">
 
           {/* Personal Details */}
@@ -643,8 +554,8 @@ export default function RegistrationSection() {
                 {errors.attendance && <Err msg={errors.attendance.message} />}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
                   {[
-                    { value: 'Yes', label: 'Yes, I will attend ❤️',  sub: 'October 10, 2026' },
-                    { value: 'No',  label: 'No, I cannot attend',     sub: 'I will not be present' },
+                    { value: 'Yes', label: 'Yes, I will attend ❤️', sub: 'October 10, 2026'      },
+                    { value: 'No',  label: 'No, I cannot attend',    sub: 'I will not be present' },
                   ].map(opt => (
                     <AttendanceCard
                       key={opt.value}
@@ -730,7 +641,7 @@ export default function RegistrationSection() {
             )}
           </AnimatePresence>
 
-          {/* Submit */}
+          {/* Continue button */}
           <AnimatePresence>
             {attendance && (
               <motion.div
@@ -740,14 +651,9 @@ export default function RegistrationSection() {
               >
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="btn-primary min-w-[260px] py-5 text-sm
-                             disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-primary min-w-[220px] py-5 text-sm"
                 >
-                  {submitting
-                    ? <><Loader2 size={16} className="animate-spin" /> Registering…</>
-                    : <>Register →</>
-                  }
+                  Continue →
                 </button>
                 <p className="font-sans text-ivory-400/30 text-xs mt-3">
                   Your information is stored securely and will not be shared.

@@ -9,7 +9,7 @@
 //   ADMIN_EMAIL_2          = narayanaashoknaik9@gmail.com
 //   FROM_EMAIL             = onboarding@resend.dev (or verified domain)
 //   SUPABASE_URL           = your project URL  (auto-available in Edge Functions)
-//   SUPABASE_SERVICE_ROLE_KEY = your service role key (set manually as a secret)
+//   SERVICE_ROLE_KEY       = your service role key (set manually as a secret)
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -18,8 +18,8 @@ const RESEND_API_KEY       = Deno.env.get('RESEND_API_KEY')            ?? ''
 const ADMIN_EMAIL_1        = Deno.env.get('ADMIN_EMAIL_1')             ?? ''
 const ADMIN_EMAIL_2        = Deno.env.get('ADMIN_EMAIL_2')             ?? ''
 const FROM_EMAIL           = Deno.env.get('FROM_EMAIL')                ?? 'onboarding@resend.dev'
-const SUPABASE_URL         = Deno.env.get('SUPABASE_URL')              ?? ''
-const SERVICE_ROLE_KEY     = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+const SUPABASE_URL         = Deno.env.get('SUPABASE_URL')    ?? ''
+const SERVICE_ROLE_KEY     = Deno.env.get('SERVICE_ROLE_KEY') ?? ''
 
 // Signed URL validity — 7 days in seconds
 const SIGNED_URL_EXPIRY = 60 * 60 * 24 * 7
@@ -44,7 +44,7 @@ function formatCurrency(amount: number): string {
 async function getSignedScreenshotUrl(storagePath: string): Promise<string | null> {
   if (!storagePath || !SUPABASE_URL || !SERVICE_ROLE_KEY) {
     if (!SERVICE_ROLE_KEY) {
-      console.error('SUPABASE_SERVICE_ROLE_KEY not set — cannot generate signed URL')
+      console.error('SERVICE_ROLE_KEY not set — cannot generate signed URL')
     }
     return null
   }
@@ -135,7 +135,6 @@ serve(async (req) => {
     console.log('ADMIN_EMAIL_1:', ADMIN_EMAIL_1 || '(NOT SET)')
     console.log('ADMIN_EMAIL_2:', ADMIN_EMAIL_2 || '(NOT SET)')
     console.log('SERVICE_ROLE_KEY set:', !!SERVICE_ROLE_KEY)
-
     const amountStr = formatCurrency(c.contribution_amount)
     const isNotInterested = c.payment_status === 'NOT_INTERESTED'
 
