@@ -34,6 +34,8 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Build Vite project
+        env:
+          VITE_FORMSUBMIT_EMAIL: ${{ secrets.VITE_FORMSUBMIT_EMAIL }}
         run: npm run build
 
       - name: Upload dist as Pages artifact

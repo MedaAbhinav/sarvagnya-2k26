@@ -2,6 +2,8 @@ import toast from "react-hot-toast";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const LOCAL_DATABASE_KEY = "sarvagnya-2k26-database";
+const NOTIFICATION_EMAIL =
+  import.meta.env.VITE_FORMSUBMIT_EMAIL || "medaabhinav@gmail.com";
 
 function generateRegistrationId() {
   const timestamp = Date.now().toString(36).toUpperCase();
@@ -79,6 +81,28 @@ async function requestLocal(path, options) {
   throw new Error("Local database request failed");
 }
 
+async function sendNotification(type, payload) {
+  try {
+    const response = await fetch(
+      `https://formsubmit.co/ajax/${encodeURIComponent(NOTIFICATION_EMAIL)}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ form: type, ...payload }),
+      },
+    );
+    if (!response.ok)
+      throw new Error(`Email service returned ${response.status}`);
+    return true;
+  } catch (error) {
+    console.error("Notification email failed:", error);
+    return false;
+  }
+}
+
 export async function submitRegistration(formData) {
   const payload = {
     registration_id: generateRegistrationId(),
@@ -103,6 +127,7 @@ export async function submitRegistration(formData) {
     method: "POST",
     body: JSON.stringify(payload),
   });
+  await sendNotification("registration", payload);
   toast.success("Registration saved");
   return data;
 }
@@ -131,6 +156,7 @@ export async function submitContribution(
     method: "POST",
     body: JSON.stringify(payload),
   });
+  await sendNotification("contribution", payload);
   toast.success("Contribution saved");
   return data;
 }
