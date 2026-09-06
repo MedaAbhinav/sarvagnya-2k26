@@ -6,7 +6,9 @@ import { createClient } from "@supabase/supabase-js";
 const ENV_URL = import.meta.env.VITE_SUPABASE_URL;
 const ENV_ANON = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-const FALLBACK_URL = "https://ibwovrzsnekqgfdjcswd.supabase.co";
+// Fallback set to the project URL provided earlier. Prefer setting `VITE_SUPABASE_URL`
+// in GitHub Actions secrets so the built site points at your project.
+const FALLBACK_URL = "https://ibwcvrzsnekqgfdjcswd.supabase.co";
 const FALLBACK_ANON =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imlid292cnpzbmVrcWdmZGpjc3dkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg1OTQ3OTgsImV4cCI6MjEwNDE3MDc5OH0.12bTv1ZkuvYj3KdtZuCCUVT0nW4s2DxKxA0rGd6rnhc";
 

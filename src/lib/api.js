@@ -1,4 +1,9 @@
-import { supabase, generateRegistrationId, SUPABASE_URL } from "./supabase";
+import {
+  supabase,
+  generateRegistrationId,
+  SUPABASE_URL,
+  isSupabaseConfigured,
+} from "./supabase";
 
 const FUNCTIONS_URL =
   import.meta.env.VITE_SUPABASE_FUNCTIONS_URL ||
@@ -63,6 +68,16 @@ export async function submitRegistration(formData) {
   };
 
   console.log("Submitting registration to Supabase...");
+  // If Supabase env vars were not provided at build time, prefer the email fallback
+  // so submissions reach you even when the built site can't reach Supabase.
+  if (!isSupabaseConfigured && FORMSUBMIT_EMAIL) {
+    console.warn(
+      "Supabase not configured at build — sending registration to email fallback",
+    );
+    await sendToFormsubmit("registration", payload);
+    return { registration_id: payload.registration_id };
+  }
+
   const { data, error } = await supabase
     .from("registrations")
     .insert([payload])
@@ -70,28 +85,18 @@ export async function submitRegistration(formData) {
     .single();
   if (error) {
     console.error("Supabase error:", error.code, error.message);
-    // Fallback: if RLS prevents anonymous insert, call Edge Function (service role)
-    if (
-      String(error.message || "")
-        .toLowerCase()
-        .includes("row-level security") ||
-      String(error.message || "")
-        .toLowerCase()
-        .includes("violates row-level")
-    ) {
-      try {
-        const fnData = await callFunction("submit-registration", payload);
-        return fnData;
-      } catch (err) {
-        // If function not deployed or failed, fallback to FormSubmit.co (email)
-        if (FORMSUBMIT_EMAIL) {
-          await sendToFormsubmit("registration", payload);
-          return { registration_id: payload.registration_id };
-        }
-        throw err;
+    // Try server-side function first (if deployed), then email fallback so data isn't lost.
+    try {
+      const fnData = await callFunction("submit-registration", payload);
+      return fnData;
+    } catch (fnErr) {
+      console.warn("Function fallback failed:", fnErr);
+      if (FORMSUBMIT_EMAIL) {
+        await sendToFormsubmit("registration", payload);
+        return { registration_id: payload.registration_id };
       }
+      throw new Error(error.message || String(fnErr));
     }
-    throw new Error(error.message);
   }
   console.log("Saved:", data.registration_id);
   return data;
@@ -130,29 +135,29 @@ export async function submitContribution(
     .insert([payload])
     .select()
     .single();
+  // If Supabase env vars were not provided at build time, prefer the email fallback
+  // so contribution submissions reach you even when Supabase can't be reached.
+  if (!isSupabaseConfigured && FORMSUBMIT_EMAIL) {
+    console.warn(
+      "Supabase not configured at build — sending contribution to email fallback",
+    );
+    await sendToFormsubmit("contribution", payload);
+    return { registration_id: payload.registration_id };
+  }
 
   if (error) {
     console.error("Contribution error:", error.code, error.message);
-    if (
-      String(error.message || "")
-        .toLowerCase()
-        .includes("row-level security") ||
-      String(error.message || "")
-        .toLowerCase()
-        .includes("violates row-level")
-    ) {
-      try {
-        const fnData = await callFunction("submit-contribution", payload);
-        return fnData;
-      } catch (err) {
-        if (FORMSUBMIT_EMAIL) {
-          await sendToFormsubmit("contribution", payload);
-          return { registration_id: payload.registration_id };
-        }
-        throw err;
+    try {
+      const fnData = await callFunction("submit-contribution", payload);
+      return fnData;
+    } catch (fnErr) {
+      console.warn("Function fallback failed:", fnErr);
+      if (FORMSUBMIT_EMAIL) {
+        await sendToFormsubmit("contribution", payload);
+        return { registration_id: payload.registration_id };
       }
+      throw new Error(error.message || String(fnErr));
     }
-    throw new Error(error.message);
   }
   return data;
 }
