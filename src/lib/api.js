@@ -1,5 +1,3 @@
-import toast from "react-hot-toast";
-
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 const LOCAL_DATABASE_KEY = "sarvagnya-2k26-database";
 const NOTIFICATION_EMAIL =
@@ -128,7 +126,6 @@ export async function submitRegistration(formData) {
     body: JSON.stringify(payload),
   });
   await sendNotification("registration", payload);
-  toast.success("Registration saved");
   return data;
 }
 
@@ -157,7 +154,6 @@ export async function submitContribution(
     body: JSON.stringify(payload),
   });
   await sendNotification("contribution", payload);
-  toast.success("Contribution saved");
   return data;
 }
 
