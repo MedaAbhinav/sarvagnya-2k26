@@ -40,12 +40,16 @@ export default function RegistrationSection() {
   const [saving, setSaving] = useState(false); // spinner flag
   const [savedReg, setSavedReg] = useState(null);
   const [amount, setAmount] = useState("");
+  const [screenshotAmount, setScreenshotAmount] = useState("");
   const [screenshot, setScreenshot] = useState(null);
   const [screenshotPreview, setPreview] = useState(null);
   const [copied, setCopied] = useState("");
   const fileRef = useRef(null);
 
   const numericAmount = parseFloat(amount) || 0;
+  const numericScreenshotAmount = parseFloat(screenshotAmount) || 0;
+  const amountsMatch =
+    numericAmount >= 1 && numericScreenshotAmount === numericAmount;
 
   const {
     register,
@@ -128,6 +132,10 @@ export default function RegistrationSection() {
       toast.error("Please upload your payment screenshot to continue.");
       return;
     }
+    if (!amountsMatch) {
+      toast.error("The screenshot amount must match your contribution amount.");
+      return;
+    }
     setSaving(true);
     try {
       const contribution = await submitContribution(
@@ -137,6 +145,7 @@ export default function RegistrationSection() {
           phone: savedReg.phone || null,
           attendance: savedReg.attendance_status || null,
           amount: numericAmount,
+          screenshotAmount: numericScreenshotAmount,
         },
         screenshot,
       );
@@ -475,6 +484,30 @@ export default function RegistrationSection() {
                     </AnimatePresence>
                   </div>
 
+                  <div>
+                    <label className="form-label">
+                      Amount Shown in Screenshot (₹){" "}
+                      <span className="text-gold-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Enter amount shown in screenshot"
+                      value={screenshotAmount}
+                      onChange={(e) => setScreenshotAmount(e.target.value)}
+                      className="form-input text-xl font-semibold text-gold-300 py-4"
+                      inputMode="numeric"
+                    />
+                    {numericScreenshotAmount > 0 &&
+                      numericAmount > 0 &&
+                      !amountsMatch && (
+                        <p className="font-sans text-red-300 text-xs mt-2">
+                          This must match the contribution amount above.
+                        </p>
+                      )}
+                  </div>
+
                   {/* Screenshot is required to complete a paid registration. */}
                   <div>
                     <label className="form-label">
@@ -539,7 +572,9 @@ export default function RegistrationSection() {
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="submit"
-                  disabled={saving || numericAmount < 1 || !screenshot}
+                  disabled={
+                    saving || numericAmount < 1 || !screenshot || !amountsMatch
+                  }
                   className="btn-primary flex-1 py-5 text-sm
                              disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -559,11 +594,13 @@ export default function RegistrationSection() {
                   ← Back
                 </button>
               </div>
-              {(!numericAmount || !screenshot) && (
+              {(!numericAmount || !screenshot || !amountsMatch) && (
                 <p className="font-sans text-ivory-400/35 text-xs text-center">
                   {!numericAmount
                     ? "Enter a contribution amount to continue."
-                    : "Upload your payment screenshot to continue."}
+                    : !screenshot
+                      ? "Upload your payment screenshot to continue."
+                      : "Enter the same amount shown in your payment screenshot."}
                 </p>
               )}
             </form>

@@ -167,6 +167,7 @@ export async function submitContribution(
     phone: contributionData.phone || null,
     attendance: contributionData.attendance || null,
     contribution_amount: parseFloat(contributionData.amount) || 0,
+    screenshot_amount: parseFloat(contributionData.screenshotAmount) || 0,
     payment_method: "UPI",
     transaction_id: null,
     screenshot_url: screenshotFile ? screenshotFile.name : null,

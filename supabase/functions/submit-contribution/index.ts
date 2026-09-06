@@ -58,6 +58,15 @@ async function handle(req: Request) {
     ) {
       return jsonResponse({ error: "Payment screenshot is required" }, 400);
     }
+    if (
+      Number(payload.contribution_amount) < 1 ||
+      Number(payload.screenshot_amount) !== Number(payload.contribution_amount)
+    ) {
+      return jsonResponse(
+        { error: "Screenshot amount must match contribution amount" },
+        400,
+      );
+    }
     console.log("payload", payload);
     const restUrl = SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/contributions";
 
