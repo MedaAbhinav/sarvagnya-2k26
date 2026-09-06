@@ -1,56 +1,87 @@
-import {
-  supabase,
-  generateRegistrationId,
-  SUPABASE_URL,
-  isSupabaseConfigured,
-} from "./supabase";
-
 import toast from "react-hot-toast";
 
-const FUNCTIONS_URL =
-  import.meta.env.VITE_SUPABASE_FUNCTIONS_URL ||
-  SUPABASE_URL.replace(".supabase.co", ".functions.supabase.co");
+const API_URL = import.meta.env.VITE_API_URL || "/api";
+const LOCAL_DATABASE_KEY = "sarvagnya-2k26-database";
 
-const FORMSUBMIT_EMAIL = import.meta.env.VITE_FORMSUBMIT_EMAIL || "";
-
-async function sendToFormsubmit(formName, payload) {
-  if (!FORMSUBMIT_EMAIL) throw new Error("Formsubmit email not configured");
-  const url = `https://formsubmit.co/ajax/${encodeURIComponent(FORMSUBMIT_EMAIL)}`;
-  const body = { form: formName, ...payload };
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = await resp.json();
-  if (!resp.ok) throw new Error(JSON.stringify(json));
-  return json;
+function generateRegistrationId() {
+  const timestamp = Date.now().toString(36).toUpperCase();
+  const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+  return `JNTU2006-${timestamp}-${random}`;
 }
 
-async function callFunction(name, payload) {
+async function request(path, options = {}) {
   try {
-    const url = `${FUNCTIONS_URL.replace(/\/$/, "")}/${name}`;
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+    const response = await fetch(`${API_URL}${path}`, {
+      headers: { "Content-Type": "application/json", ...options.headers },
+      ...options,
     });
-    const json = await resp.json();
-    if (!resp.ok) throw new Error(JSON.stringify(json));
-    return json.data || json;
-  } catch (err) {
-    console.error("Function call failed", name, err);
-    throw err;
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "Request failed");
+    return body;
+  } catch (error) {
+    if (import.meta.env.VITE_API_URL) throw error;
+    return requestLocal(path, options);
   }
 }
 
-// ── REGISTRATIONS ────────────────────────────────────────────
+function readLocalDatabase() {
+  try {
+    return (
+      JSON.parse(localStorage.getItem(LOCAL_DATABASE_KEY)) || {
+        registrations: [],
+        contributions: [],
+      }
+    );
+  } catch {
+    return { registrations: [], contributions: [] };
+  }
+}
+
+function writeLocalDatabase(database) {
+  localStorage.setItem(LOCAL_DATABASE_KEY, JSON.stringify(database));
+}
+
+async function requestLocal(path, options) {
+  const database = readLocalDatabase();
+  const [resource, id] = path.split("/").filter(Boolean);
+  const method = options.method || "GET";
+
+  if (method === "GET" && resource === "registrations") {
+    return database.registrations.map((registration) => ({
+      ...registration,
+      contributions: database.contributions.filter(
+        (item) => item.registration_id === registration.registration_id,
+      ),
+    }));
+  }
+  if (method === "GET" && resource === "contributions")
+    return database.contributions;
+
+  const payload = options.body ? JSON.parse(options.body) : {};
+  if (
+    method === "POST" &&
+    ["registrations", "contributions"].includes(resource)
+  ) {
+    const item = { id: Date.now(), ...payload };
+    database[resource].push(item);
+    writeLocalDatabase(database);
+    return item;
+  }
+  if (method === "PATCH" && resource === "contributions") {
+    const item = database.contributions.find(
+      (entry) => String(entry.id) === id,
+    );
+    if (!item) throw new Error("Contribution not found");
+    Object.assign(item, payload);
+    writeLocalDatabase(database);
+    return item;
+  }
+  throw new Error("Local database request failed");
+}
 
 export async function submitRegistration(formData) {
-  const registrationId = generateRegistrationId();
-
   const payload = {
-    registration_id: registrationId,
+    registration_id: generateRegistrationId(),
     full_name: formData.fullName,
     phone: formData.phone,
     email: null,
@@ -68,72 +99,21 @@ export async function submitRegistration(formData) {
     special_message: null,
     created_at: new Date().toISOString(),
   };
-
-  console.log("Submitting registration to Supabase...");
-  // If Supabase env vars were not provided at build time, prefer the email fallback
-  // so submissions reach you even when the built site can't reach Supabase.
-  if (!isSupabaseConfigured && FORMSUBMIT_EMAIL) {
-    console.warn(
-      "Supabase not configured at build — sending registration to email fallback",
-    );
-    try {
-      await sendToFormsubmit("registration", payload);
-      toast.success("Saved via email fallback");
-      return { registration_id: payload.registration_id };
-    } catch (err) {
-      console.error("Email fallback failed", err);
-      toast.error("Save failed: email fallback error");
-      throw err;
-    }
-  }
-
-  const { data, error } = await supabase
-    .from("registrations")
-    .insert([payload])
-    .select()
-    .single();
-  if (error) {
-    console.error("Supabase error:", error.code, error.message);
-    // Try server-side function first (if deployed), then email fallback so data isn't lost.
-    try {
-      const fnData = await callFunction("submit-registration", payload);
-      toast.success("Saved via server function");
-      return fnData;
-    } catch (fnErr) {
-      console.warn("Function fallback failed:", fnErr);
-      toast.error(`Function failed: ${String(fnErr).slice(0, 120)}`);
-      if (FORMSUBMIT_EMAIL) {
-        try {
-          await sendToFormsubmit("registration", payload);
-          toast.success("Saved via email fallback");
-          return { registration_id: payload.registration_id };
-        } catch (emailErr) {
-          console.error("Email fallback failed", emailErr);
-          toast.error("Save failed: email fallback error");
-          throw emailErr;
-        }
-      }
-      throw new Error(error.message || String(fnErr));
-    }
-  }
-  console.log("Saved:", data.registration_id);
+  const data = await request("/registrations", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  toast.success("Registration saved");
   return data;
 }
-
-// ── CONTRIBUTIONS ────────────────────────────────────────────
 
 export async function submitContribution(
   contributionData,
   screenshotFile = null,
 ) {
-  let screenshotUrl = null;
-  if (screenshotFile) {
-    screenshotUrl = await uploadScreenshot(
-      contributionData.registrationId,
-      screenshotFile,
-    );
-  }
-
+  const screenshotUrl = screenshotFile
+    ? await fileToDataUrl(screenshotFile)
+    : null;
   const payload = {
     registration_id: contributionData.registrationId,
     alumni_name: contributionData.alumniName,
@@ -147,96 +127,28 @@ export async function submitContribution(
     payment_status: "SUBMITTED",
     created_at: new Date().toISOString(),
   };
-
-  const { data, error } = await supabase
-    .from("contributions")
-    .insert([payload])
-    .select()
-    .single();
-  // If Supabase env vars were not provided at build time, prefer the email fallback
-  // so contribution submissions reach you even when Supabase can't be reached.
-  if (!isSupabaseConfigured && FORMSUBMIT_EMAIL) {
-    console.warn(
-      "Supabase not configured at build — sending contribution to email fallback",
-    );
-    try {
-      await sendToFormsubmit("contribution", payload);
-      toast.success("Saved via email fallback");
-      return { registration_id: payload.registration_id };
-    } catch (err) {
-      console.error("Email fallback failed", err);
-      toast.error("Save failed: email fallback error");
-      throw err;
-    }
-  }
-
-  if (error) {
-    console.error("Contribution error:", error.code, error.message);
-    try {
-      const fnData = await callFunction("submit-contribution", payload);
-      toast.success("Saved via server function");
-      return fnData;
-    } catch (fnErr) {
-      console.warn("Function fallback failed:", fnErr);
-      toast.error(`Function failed: ${String(fnErr).slice(0, 120)}`);
-      if (FORMSUBMIT_EMAIL) {
-        try {
-          await sendToFormsubmit("contribution", payload);
-          toast.success("Saved via email fallback");
-          return { registration_id: payload.registration_id };
-        } catch (emailErr) {
-          console.error("Email fallback failed", emailErr);
-          toast.error("Save failed: email fallback error");
-          throw emailErr;
-        }
-      }
-      throw new Error(error.message || String(fnErr));
-    }
-  }
+  const data = await request("/contributions", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  toast.success("Contribution saved");
   return data;
 }
 
-async function uploadScreenshot(registrationId, file) {
-  try {
-    const ext = file.name.split(".").pop().toLowerCase();
-    const fileName = `${registrationId}-${Date.now()}.${ext}`;
-    const { error } = await supabase.storage
-      .from("payment-screenshots")
-      .upload(fileName, file, { contentType: file.type, upsert: false });
-    if (error) {
-      console.error("Upload error:", error.message);
-      return null;
-    }
-    const { data } = supabase.storage
-      .from("payment-screenshots")
-      .getPublicUrl(fileName);
-    return data?.publicUrl || null;
-  } catch (err) {
-    console.error("Screenshot failed:", err);
-    return null;
-  }
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
-
-// ── ADMIN ────────────────────────────────────────────────────
 
 export async function getAllRegistrations() {
-  const { data, error } = await supabase
-    .from("registrations")
-    .select(
-      "*, contributions(id, contribution_amount, payment_status, screenshot_url, created_at)",
-    )
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data;
+  return request("/registrations");
 }
-
 export async function getAllContributions() {
-  const { data, error } = await supabase
-    .from("contributions")
-    .select("*")
-    .order("created_at", { ascending: false });
-  if (error) throw error;
-  return data;
+  return request("/contributions");
 }
 
 export async function updatePaymentStatus(
@@ -244,14 +156,8 @@ export async function updatePaymentStatus(
   status,
   notes = null,
 ) {
-  const update = { payment_status: status };
-  if (notes) update.admin_notes = notes;
-  const { data, error } = await supabase
-    .from("contributions")
-    .update(update)
-    .eq("id", contributionId)
-    .select()
-    .single();
-  if (error) throw error;
-  return data;
+  return request(`/contributions/${contributionId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ payment_status: status, admin_notes: notes }),
+  });
 }
