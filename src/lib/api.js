@@ -86,6 +86,13 @@ async function sendNotification(type, payload, attachment = null) {
     body.append("_template", "table");
     body.append("_captcha", "false");
     body.append("submission_type", type);
+    body.append(
+      "message",
+      Object.entries(payload)
+        .filter(([, value]) => value !== null && value !== undefined)
+        .map(([key, value]) => `${key.replaceAll("_", " ")}: ${value}`)
+        .join("\n"),
+    );
     Object.entries(payload).forEach(([key, value]) => {
       if (key !== "screenshot_url" && value !== null && value !== undefined) {
         body.append(key, String(value));
