@@ -22,7 +22,8 @@ import GoldDivider from "../components/GoldDivider";
 const QR_SRC = `${import.meta.env.BASE_URL}upi-qr.jpeg`;
 
 // Flow:
-// FORM → [save reg] → PAY → [save contribution] → DONE
+// FORM → [save reg] → CHOICE → DONE
+//                         ↘ PAY → [save contribution] → DONE
 const STEP = {
   FORM: "form",
   CHOICE: "choice",
@@ -86,7 +87,7 @@ export default function RegistrationSection() {
     try {
       const reg = await submitRegistration(data);
       setSavedReg(reg);
-      setStep(STEP.PAY);
+      setStep(STEP.CHOICE);
     } catch (err) {
       console.error(err);
       const msg = err?.message || "Unknown error";
