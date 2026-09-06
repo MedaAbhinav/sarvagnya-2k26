@@ -124,6 +124,10 @@ export default function RegistrationSection() {
       toast.error("Please enter a contribution amount.");
       return;
     }
+    if (!screenshot) {
+      toast.error("Please upload your payment screenshot to continue.");
+      return;
+    }
     setSaving(true);
     try {
       const contribution = await submitContribution(
@@ -136,11 +140,22 @@ export default function RegistrationSection() {
         },
         screenshot,
       );
-      await sendCompletedNotification(savedReg, contribution, screenshot);
+      const notificationSent = await sendCompletedNotification(
+        savedReg,
+        contribution,
+        screenshot,
+      );
+      if (!notificationSent) {
+        throw new Error("Payment screenshot upload failed");
+      }
       setStep(STEP.DONE);
     } catch (err) {
       console.error(err);
-      toast.error("Could not save contribution. Please try again.");
+      toast.error(
+        err?.message === "Payment screenshot upload failed"
+          ? "Payment screenshot could not be uploaded. Please try again."
+          : "Could not save contribution. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
@@ -306,7 +321,7 @@ export default function RegistrationSection() {
 
                 <p className="font-sans text-ivory-300/70 text-sm mb-6 leading-relaxed">
                   Scan the QR code or use the bank details below, then enter the
-                  amount and optionally upload a payment screenshot.
+                  amount and upload your payment screenshot.
                 </p>
 
                 {/* Payment methods */}
@@ -460,13 +475,11 @@ export default function RegistrationSection() {
                     </AnimatePresence>
                   </div>
 
-                  {/* Screenshot — optional */}
+                  {/* Screenshot is required to complete a paid registration. */}
                   <div>
                     <label className="form-label">
-                      Payment Screenshot
-                      <span className="text-navy-500 font-normal ml-1 normal-case tracking-normal text-xs">
-                        (optional)
-                      </span>
+                      Payment Screenshot{" "}
+                      <span className="text-gold-500">*</span>
                     </label>
                     <p className="font-sans text-ivory-400/45 text-xs mb-3 leading-relaxed">
                       Upload a screenshot after making the payment. JPG, PNG or
@@ -526,7 +539,7 @@ export default function RegistrationSection() {
               <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   type="submit"
-                  disabled={saving || numericAmount < 1}
+                  disabled={saving || numericAmount < 1 || !screenshot}
                   className="btn-primary flex-1 py-5 text-sm
                              disabled:opacity-50 disabled:cursor-not-allowed"
                 >
@@ -546,9 +559,11 @@ export default function RegistrationSection() {
                   ← Back
                 </button>
               </div>
-              {numericAmount < 1 && (
+              {(!numericAmount || !screenshot) && (
                 <p className="font-sans text-ivory-400/35 text-xs text-center">
-                  Enter a contribution amount to continue.
+                  {!numericAmount
+                    ? "Enter a contribution amount to continue."
+                    : "Upload your payment screenshot to continue."}
                 </p>
               )}
             </form>
