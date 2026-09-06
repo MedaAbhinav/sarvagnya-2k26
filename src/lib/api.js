@@ -17,7 +17,7 @@ async function request(path, options = {}) {
     });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "Request failed");
-    return body;
+    return body?.data ?? body;
   } catch (error) {
     if (import.meta.env.VITE_API_URL) throw error;
     return requestLocal(path, options);
