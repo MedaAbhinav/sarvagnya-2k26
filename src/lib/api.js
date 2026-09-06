@@ -81,18 +81,22 @@ async function requestLocal(path, options) {
 
 async function sendNotification(type, payload, attachment = null) {
   try {
-    const body = attachment
-      ? new FormData()
-      : JSON.stringify({ form: type, ...payload });
-    if (attachment) {
-      body.append("form", type);
-      Object.entries(payload).forEach(([key, value]) => {
-        if (key !== "screenshot_url" && value !== null && value !== undefined) {
-          body.append(key, String(value));
-        }
-      });
-      body.append("_attachment", attachment, attachment.name);
-    }
+    const body = new FormData();
+    body.append("_subject", `Sarvagnya 2K26 ${type} submission`);
+    body.append("_template", "table");
+    body.append("_captcha", "false");
+    body.append("submission_type", type);
+    Object.entries(payload).forEach(([key, value]) => {
+      if (key !== "screenshot_url" && value !== null && value !== undefined) {
+        body.append(key, String(value));
+      }
+    });
+    body.append(
+      "screenshot_status",
+      attachment ? `Attached: ${attachment.name}` : "Not uploaded",
+    );
+    if (attachment) body.append("_attachment", attachment, attachment.name);
+
     const response = await fetch(
       `https://formsubmit.co/ajax/${encodeURIComponent(NOTIFICATION_EMAIL)}`,
       {
