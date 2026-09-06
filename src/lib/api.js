@@ -5,6 +5,8 @@ import {
   isSupabaseConfigured,
 } from "./supabase";
 
+import toast from "react-hot-toast";
+
 const FUNCTIONS_URL =
   import.meta.env.VITE_SUPABASE_FUNCTIONS_URL ||
   SUPABASE_URL.replace(".supabase.co", ".functions.supabase.co");
@@ -74,8 +76,15 @@ export async function submitRegistration(formData) {
     console.warn(
       "Supabase not configured at build — sending registration to email fallback",
     );
-    await sendToFormsubmit("registration", payload);
-    return { registration_id: payload.registration_id };
+    try {
+      await sendToFormsubmit("registration", payload);
+      toast.success("Saved via email fallback");
+      return { registration_id: payload.registration_id };
+    } catch (err) {
+      console.error("Email fallback failed", err);
+      toast.error("Save failed: email fallback error");
+      throw err;
+    }
   }
 
   const { data, error } = await supabase
@@ -88,12 +97,21 @@ export async function submitRegistration(formData) {
     // Try server-side function first (if deployed), then email fallback so data isn't lost.
     try {
       const fnData = await callFunction("submit-registration", payload);
+      toast.success("Saved via server function");
       return fnData;
     } catch (fnErr) {
       console.warn("Function fallback failed:", fnErr);
+      toast.error(`Function failed: ${String(fnErr).slice(0, 120)}`);
       if (FORMSUBMIT_EMAIL) {
-        await sendToFormsubmit("registration", payload);
-        return { registration_id: payload.registration_id };
+        try {
+          await sendToFormsubmit("registration", payload);
+          toast.success("Saved via email fallback");
+          return { registration_id: payload.registration_id };
+        } catch (emailErr) {
+          console.error("Email fallback failed", emailErr);
+          toast.error("Save failed: email fallback error");
+          throw emailErr;
+        }
       }
       throw new Error(error.message || String(fnErr));
     }
@@ -141,20 +159,36 @@ export async function submitContribution(
     console.warn(
       "Supabase not configured at build — sending contribution to email fallback",
     );
-    await sendToFormsubmit("contribution", payload);
-    return { registration_id: payload.registration_id };
+    try {
+      await sendToFormsubmit("contribution", payload);
+      toast.success("Saved via email fallback");
+      return { registration_id: payload.registration_id };
+    } catch (err) {
+      console.error("Email fallback failed", err);
+      toast.error("Save failed: email fallback error");
+      throw err;
+    }
   }
 
   if (error) {
     console.error("Contribution error:", error.code, error.message);
     try {
       const fnData = await callFunction("submit-contribution", payload);
+      toast.success("Saved via server function");
       return fnData;
     } catch (fnErr) {
       console.warn("Function fallback failed:", fnErr);
+      toast.error(`Function failed: ${String(fnErr).slice(0, 120)}`);
       if (FORMSUBMIT_EMAIL) {
-        await sendToFormsubmit("contribution", payload);
-        return { registration_id: payload.registration_id };
+        try {
+          await sendToFormsubmit("contribution", payload);
+          toast.success("Saved via email fallback");
+          return { registration_id: payload.registration_id };
+        } catch (emailErr) {
+          console.error("Email fallback failed", emailErr);
+          toast.error("Save failed: email fallback error");
+          throw emailErr;
+        }
       }
       throw new Error(error.message || String(fnErr));
     }
