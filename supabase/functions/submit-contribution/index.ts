@@ -67,6 +67,8 @@ async function handle(req: Request) {
         400,
       );
     }
+    const { screenshot_amount: _screenshotAmount, ...databasePayload } =
+      payload;
     console.log("payload", payload);
     const restUrl = SUPABASE_URL.replace(/\/$/, "") + "/rest/v1/contributions";
 
@@ -78,7 +80,7 @@ async function handle(req: Request) {
         Authorization: `Bearer ${SERVICE_KEY}`,
         Prefer: "return=representation",
       },
-      body: JSON.stringify([payload]),
+      body: JSON.stringify([databasePayload]),
     });
 
     const text = await resp.text();
