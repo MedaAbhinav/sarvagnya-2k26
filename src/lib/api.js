@@ -160,9 +160,6 @@ export async function submitContribution(
   contributionData,
   screenshotFile = null,
 ) {
-  const screenshotUrl = screenshotFile
-    ? await fileToDataUrl(screenshotFile)
-    : null;
   const payload = {
     registration_id: contributionData.registrationId,
     alumni_name: contributionData.alumniName,
@@ -172,7 +169,7 @@ export async function submitContribution(
     contribution_amount: parseFloat(contributionData.amount) || 0,
     payment_method: "UPI",
     transaction_id: null,
-    screenshot_url: screenshotUrl,
+    screenshot_url: screenshotFile ? screenshotFile.name : null,
     payment_status: "SUBMITTED",
     created_at: new Date().toISOString(),
   };
@@ -205,15 +202,6 @@ export async function sendCompletedNotification(
     ),
   };
   return sendNotification("completed-registration", payload, screenshotFile);
-}
-
-function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 
 export async function getAllRegistrations() {
