@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { motion, AnimatePresence } from "framer-motion";
 import toast from "react-hot-toast";
@@ -45,6 +45,8 @@ export default function RegistrationSection() {
   const [screenshotPreview, setPreview] = useState(null);
   const [copied, setCopied] = useState("");
   const fileRef = useRef(null);
+  const activeSectionRef = useRef(null);
+  const hasRenderedStep = useRef(false);
 
   const numericAmount = parseFloat(amount) || 0;
   const numericScreenshotAmount = parseFloat(screenshotAmount) || 0;
@@ -60,6 +62,20 @@ export default function RegistrationSection() {
     defaultValues: { batch: "2006", familyMembers: "0" },
   });
   const attendance = watch("attendance");
+
+  useEffect(() => {
+    if (!hasRenderedStep.current) {
+      hasRenderedStep.current = true;
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      activeSectionRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
+  }, [step]);
 
   // ── Copy helper ────────────────────────────────────────────
   function handleCopy(text, key) {
@@ -112,8 +128,8 @@ export default function RegistrationSection() {
 
   // ── STEP 2a: No contribution → registration already saved → DONE
   async function handleNoContribution() {
-    await sendCompletedNotification(savedReg);
     setStep(STEP.DONE);
+    await sendCompletedNotification(savedReg);
   }
 
   // ── STEP 2b: Yes → show payment screen
@@ -177,6 +193,8 @@ export default function RegistrationSection() {
     return (
       <section
         id="registration"
+        ref={activeSectionRef}
+        style={{ scrollMarginTop: "5.5rem" }}
         className="section-pad bg-navy-950 relative overflow-hidden"
       >
         <div className="absolute inset-0 grain-overlay pointer-events-none" />
@@ -228,6 +246,8 @@ export default function RegistrationSection() {
     return (
       <section
         id="registration"
+        ref={activeSectionRef}
+        style={{ scrollMarginTop: "5.5rem" }}
         className="section-pad bg-navy-950 relative overflow-hidden"
       >
         <div className="absolute inset-0 grain-overlay pointer-events-none" />
@@ -265,6 +285,7 @@ export default function RegistrationSection() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button
+                  type="button"
                   onClick={handleYesContribution}
                   className="flex items-center justify-center gap-2 p-5 border-2
                              border-gold-500 bg-gold-500/10 text-gold-300
@@ -276,6 +297,7 @@ export default function RegistrationSection() {
                 </button>
 
                 <button
+                  type="button"
                   onClick={handleNoContribution}
                   className="flex items-center justify-center gap-2 p-5 border
                              border-navy-600 text-ivory-400/70
@@ -304,6 +326,8 @@ export default function RegistrationSection() {
     return (
       <section
         id="registration"
+        ref={activeSectionRef}
+        style={{ scrollMarginTop: "5.5rem" }}
         className="section-pad bg-navy-950 relative overflow-hidden"
       >
         <div className="absolute inset-0 grain-overlay pointer-events-none" />
@@ -616,6 +640,8 @@ export default function RegistrationSection() {
   return (
     <section
       id="registration"
+      ref={activeSectionRef}
+      style={{ scrollMarginTop: "5.5rem" }}
       className="section-pad relative overflow-hidden bg-navy-950"
     >
       <div className="absolute inset-0 grain-overlay pointer-events-none" />
