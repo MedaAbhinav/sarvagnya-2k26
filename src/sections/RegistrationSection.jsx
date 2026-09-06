@@ -13,7 +13,11 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { submitRegistration, submitContribution } from "../lib/api";
+import {
+  submitRegistration,
+  submitContribution,
+  sendCompletedNotification,
+} from "../lib/api";
 import { EVENT, PAYMENT } from "../config";
 import { formatCurrency } from "../lib/utils";
 import ScrollReveal from "../components/ScrollReveal";
@@ -103,7 +107,8 @@ export default function RegistrationSection() {
   }
 
   // ── STEP 2a: No contribution → registration already saved → DONE
-  function handleNoContribution() {
+  async function handleNoContribution() {
+    await sendCompletedNotification(savedReg);
     setStep(STEP.DONE);
   }
 
@@ -121,7 +126,7 @@ export default function RegistrationSection() {
     }
     setSaving(true);
     try {
-      await submitContribution(
+      const contribution = await submitContribution(
         {
           registrationId: savedReg.registration_id,
           alumniName: savedReg.full_name,
@@ -131,6 +136,7 @@ export default function RegistrationSection() {
         },
         screenshot,
       );
+      await sendCompletedNotification(savedReg, contribution, screenshot);
       setStep(STEP.DONE);
     } catch (err) {
       console.error(err);

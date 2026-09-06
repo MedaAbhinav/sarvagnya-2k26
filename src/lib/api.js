@@ -153,7 +153,6 @@ export async function submitRegistration(formData) {
     method: "POST",
     body: JSON.stringify(payload),
   });
-  await sendNotification("registration", payload);
   return data;
 }
 
@@ -181,8 +180,31 @@ export async function submitContribution(
     method: "POST",
     body: JSON.stringify(payload),
   });
-  await sendNotification("contribution", payload, screenshotFile);
   return data;
+}
+
+export async function sendCompletedNotification(
+  registration,
+  contribution = null,
+  screenshotFile = null,
+) {
+  const payload = {
+    ...Object.fromEntries(
+      Object.entries(registration || {}).map(([key, value]) => [
+        `registration_${key}`,
+        value,
+      ]),
+    ),
+    ...Object.fromEntries(
+      Object.entries(
+        contribution || {
+          contribution_status: "NOT_SUBMITTED",
+          contribution_amount: 0,
+        },
+      ).map(([key, value]) => [`contribution_${key}`, value]),
+    ),
+  };
+  return sendNotification("completed-registration", payload, screenshotFile);
 }
 
 function fileToDataUrl(file) {
