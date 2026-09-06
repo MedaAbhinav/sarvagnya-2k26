@@ -81,37 +81,45 @@ async function requestLocal(path, options) {
 
 async function sendNotification(type, payload, attachment = null) {
   try {
-    const body = new FormData();
-    body.append("_subject", `Sarvagnya 2K26 ${type} submission`);
-    body.append("_template", "table");
-    body.append("_captcha", "false");
-    body.append("submission_type", type);
-    body.append(
-      "message",
-      Object.entries(payload)
-        .filter(([, value]) => value !== null && value !== undefined)
-        .map(([key, value]) => `${key.replaceAll("_", " ")}: ${value}`)
-        .join("\n"),
-    );
-    Object.entries(payload).forEach(([key, value]) => {
-      if (key !== "screenshot_url" && value !== null && value !== undefined) {
-        body.append(key, String(value));
-      }
-    });
-    body.append(
-      "screenshot_status",
-      attachment ? `Attached: ${attachment.name}` : "Not uploaded",
-    );
-    if (attachment) body.append("_attachment", attachment, attachment.name);
+    const message = Object.entries(payload)
+      .filter(([, value]) => value !== null && value !== undefined)
+      .map(([key, value]) => `${key.replaceAll("_", " ")}: ${value}`)
+      .join("\n");
+    const subject = `Sarvagnya 2K26 ${type} submission`;
+    const endpoint = attachment
+      ? `https://formsubmit.co/${encodeURIComponent(NOTIFICATION_EMAIL)}`
+      : `https://formsubmit.co/ajax/${encodeURIComponent(NOTIFICATION_EMAIL)}`;
+    const body = attachment
+      ? new FormData()
+      : {
+          _subject: subject,
+          _template: "table",
+          _captcha: "false",
+          submission_type: type,
+          message,
+          ...payload,
+        };
+    if (attachment) {
+      body.append("_subject", subject);
+      body.append("_template", "table");
+      body.append("_captcha", "false");
+      body.append("submission_type", type);
+      body.append("message", message);
+      Object.entries(payload).forEach(([key, value]) => {
+        if (key !== "screenshot_url" && value !== null && value !== undefined) {
+          body.append(key, String(value));
+        }
+      });
+      body.append("_attachment", attachment, attachment.name);
+    }
 
-    const response = await fetch(
-      `https://formsubmit.co/ajax/${encodeURIComponent(NOTIFICATION_EMAIL)}`,
-      {
-        method: "POST",
-        headers: { Accept: "application/json" },
-        body,
-      },
-    );
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: attachment
+        ? { Accept: "text/html" }
+        : { "Content-Type": "application/json", Accept: "application/json" },
+      body: attachment ? body : JSON.stringify(body),
+    });
     if (!response.ok)
       throw new Error(`Email service returned ${response.status}`);
     return true;
