@@ -72,7 +72,7 @@ export default function RegistrationSection() {
     requestAnimationFrame(() => {
       activeSectionRef.current?.scrollIntoView({
         behavior: "smooth",
-        block: "start",
+        block: "center",
       });
     });
   }, [step]);
