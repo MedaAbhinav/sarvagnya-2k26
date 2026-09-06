@@ -79,17 +79,26 @@ async function requestLocal(path, options) {
   throw new Error("Local database request failed");
 }
 
-async function sendNotification(type, payload) {
+async function sendNotification(type, payload, attachment = null) {
   try {
+    const body = attachment
+      ? new FormData()
+      : JSON.stringify({ form: type, ...payload });
+    if (attachment) {
+      body.append("form", type);
+      Object.entries(payload).forEach(([key, value]) => {
+        if (key !== "screenshot_url" && value !== null && value !== undefined) {
+          body.append(key, String(value));
+        }
+      });
+      body.append("_attachment", attachment, attachment.name);
+    }
     const response = await fetch(
       `https://formsubmit.co/ajax/${encodeURIComponent(NOTIFICATION_EMAIL)}`,
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ form: type, ...payload }),
+        headers: { Accept: "application/json" },
+        body,
       },
     );
     if (!response.ok)
@@ -153,7 +162,7 @@ export async function submitContribution(
     method: "POST",
     body: JSON.stringify(payload),
   });
-  await sendNotification("contribution", payload);
+  await sendNotification("contribution", payload, screenshotFile);
   return data;
 }
 
